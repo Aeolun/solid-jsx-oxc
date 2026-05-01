@@ -185,7 +185,7 @@ fn get_children_ssr<'a, 'b>(
                     {
                         result.template_values[0].expr.clone_in(ast.allocator)
                     } else {
-                        result.to_ssr_expression(ast, context.hydratable)
+                        result.to_ssr_expression(context, context.hydratable)
                     };
                     children.push(extracted);
                 }

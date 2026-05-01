@@ -507,7 +507,7 @@ fn transform_element_with_spread<'a>(
                     if needs_markers {
                         push_open_marker(&mut children);
                     }
-                    children.push(child_result.to_ssr_expression(ast, context.hydratable));
+                    children.push(child_result.to_ssr_expression(context, context.hydratable));
                     if needs_markers {
                         push_close_marker(&mut children);
                     }

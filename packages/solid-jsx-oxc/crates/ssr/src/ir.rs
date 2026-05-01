@@ -200,7 +200,22 @@ impl<'a> SSRResult<'a> {
         true
     }
 
-    pub fn to_ssr_expression(&self, ast: AstBuilder<'a>, hydratable: bool) -> Expression<'a> {
+    /// Lower the IR to its final JS expression. Registers the runtime helpers
+    /// (`ssr`, `escape`) it emits on `context` itself so every call site is
+    /// guaranteed-correct without having to re-derive what the IR will produce.
+    /// Without that self-registration, paths that bypass
+    /// `SSRTransform::build_ssr_expression` (native-element children in
+    /// `element.rs`, component children in `component.rs`, fragment children
+    /// in `transform.rs`) emit bare `ssr\`…\`` tagged templates whose `ssr`
+    /// import never gets added to the file — which surfaces at SSR runtime as
+    /// `ReferenceError: ssr is not defined` once the bundler renames or
+    /// deconflicts the import binding.
+    pub fn to_ssr_expression(
+        &self,
+        context: &SSRContext<'a>,
+        hydratable: bool,
+    ) -> Expression<'a> {
+        let ast = context.ast();
         let gen_span = SPAN;
 
         if self.template_values.is_empty() {
@@ -277,6 +292,14 @@ impl<'a> SSRResult<'a> {
             quasis.push(element);
         }
 
+        // We're definitely emitting an `ssr\`…\`` tagged template now — the
+        // two short-circuits above have returned. Register the helper here so
+        // every entry into this function gets a consistent import, regardless
+        // of whether the caller went through `build_ssr_expression` or called
+        // us directly (native-element children, component children, fragment
+        // children).
+        context.register_helper("ssr");
+
         // Build expressions (dynamic parts)
         let mut expressions = ast.vec();
         for val in &self.template_values {
@@ -284,6 +307,11 @@ impl<'a> SSRResult<'a> {
             let wrapped = if val.skip_escape {
                 expr
             } else {
+                // Same reasoning as `ssr` above: register `escape` whenever we
+                // actually emit an `escape(...)` call. Most call paths already
+                // pre-register it via `transform_expression_container`, but
+                // the IR is the source of truth for what's emitted.
+                context.register_helper("escape");
                 let callee = ast.expression_identifier(gen_span, "escape");
                 let mut args = ast.vec();
                 args.push(Argument::from(expr));

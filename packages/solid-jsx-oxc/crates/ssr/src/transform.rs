@@ -142,7 +142,7 @@ impl<'a> SSRTransform<'a> {
             {
                 continue;
             }
-            child_exprs.push(child_result.to_ssr_expression(ast, hydratable));
+            child_exprs.push(child_result.to_ssr_expression(&self.context, hydratable));
         }
 
         if child_exprs.is_empty() {
@@ -336,19 +336,15 @@ impl<'a> SSRTransform<'a> {
     fn build_ssr_expression(
         &self,
         result: &SSRResult<'a>,
-        ctx: &mut TraverseCtx<'a, ()>,
+        _ctx: &mut TraverseCtx<'a, ()>,
     ) -> Expression<'a> {
-        let ast = ctx.ast;
         let hydratable = self.context.hydratable && self.options.hydratable;
 
-        // Only register the `ssr` helper when the result will actually emit a
-        // tagged template literal — the Babel-parity short-circuit returns a
-        // bare `ssrElement(...)` (or string literal) for trivial cases and
-        // does not import `ssr`.
-        if result.needs_ssr_wrapper() {
-            self.context.register_helper("ssr");
-        }
-
-        result.to_ssr_expression(ast, hydratable)
+        // `to_ssr_expression` self-registers `ssr` and `escape` when it
+        // actually emits them (see `ir.rs`). We don't need to pre-register
+        // them here — the previous gate via `needs_ssr_wrapper()` was correct
+        // for this site but missed the other three sites that call
+        // `to_ssr_expression` directly.
+        result.to_ssr_expression(&self.context, hydratable)
     }
 }
