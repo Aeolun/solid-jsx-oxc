@@ -1382,6 +1382,66 @@ fn ssr_regression_spread_element_is_emitted_bare() {
     );
 }
 
+#[test]
+fn ssr_regression_spread_child_is_not_wrapped_in_hydration_markers() {
+    // Symptom Bart hit in Gothab: a `@gothab/ui` Checkbox shaped like
+    //
+    //   <label><input type="checkbox" {...rest}/>{children}</label>
+    //
+    // had its `onChange` silently swallowed after SSR + hydration. The
+    // `change` event fired natively but the consumer's listener never ran.
+    //
+    // Cause: this transform was wrapping the spread `<input>` child in
+    // `<!--$-->`/`<!--/-->` hydration markers in the parent's SSR template:
+    //
+    //   ssr`<label>` + `<!--$-->${ssrElement("input", …)}<!--/-->` + …
+    //
+    // The client-side OXC transform, however, treats a child native
+    // element as a static template chunk — `<label><input ...>...` — so
+    // after hydration `label.firstChild` resolves to the `<!--$-->`
+    // comment instead of the `<input>`. Refs and event listeners get
+    // wired to a comment node and silently no-op.
+    //
+    // Babel's reference plugin (`src/ssr/element.js:509-515`) explicitly
+    // skips marker emission for children with `spreadElement: true`. OXC's
+    // `process_jsx_children` was treating those exactly like component
+    // children — both got markers — instead of the Babel split:
+    // components yes, spread elements no.
+    //
+    // Pin the Babel-parity output so this can't regress.
+    let code = transform_ssr_hydratable_re(
+        r#"function C(props) { return <label><input type="checkbox" {...props.rest}/>{props.children}</label>; }"#,
+    );
+
+    // The `ssrElement("input", …)` call must appear directly in the
+    // parent template without surrounding `<!--$-->`/`<!--/-->`.
+    assert!(
+        !code.contains("<!--$-->${ssrElement(\"input\""),
+        "Spread element child must not be preceded by `<!--$-->` in the parent template. Got:\n{}",
+        code,
+    );
+    assert!(
+        !code.contains(", true)}<!--/-->"),
+        "Spread element child must not be followed by `<!--/-->` in the parent template. Got:\n{}",
+        code,
+    );
+
+    // Sibling text expression children are still wrapped — only the
+    // spread element is exempted.
+    assert!(
+        code.contains("<!--$-->${escape(props.children)}<!--/-->"),
+        "Sibling text-expression child should still get markers (multi-children + hydratable). Got:\n{}",
+        code,
+    );
+
+    // Sanity: ssrElement is still emitted for the input itself.
+    assert!(
+        code.contains("ssrElement(\"input\""),
+        "Spread element should still produce ssrElement(...). Got:\n{}",
+        code,
+    );
+}
+
 fn transform_ssr_re(source: &str) -> String {
     let options = TransformOptions {
         generate: GenerateMode::Ssr,

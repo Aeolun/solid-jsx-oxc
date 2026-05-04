@@ -1036,13 +1036,33 @@ fn process_jsx_children<'a>(
                     // its own `ssrHydrationKey()` here either.
                     transform_element_nested(child_elem, &child_tag, context, options)
                 };
-                // Component calls and spread-elements emit dynamic
-                // expressions into the template; native elements are inlined
-                // as static template chunks. Only the dynamic case takes
-                // markers — matches babel's `child.exprs.length &&
-                // !child.spreadElement` filter.
-                let is_dynamic_child = is_comp || child_result.has_spread;
-                if wrap && is_dynamic_child {
+                // Component children emit dynamic expressions (a
+                // `createComponent(...)` or `escape(...)` call) and the
+                // runtime's hydration walk uses `<!--$-->`/`<!--/-->`
+                // markers to find them in the SSR DOM — so they DO take
+                // markers in a hydratable + multi-child parent.
+                //
+                // Native-element children with a spread (`<input
+                // {...rest}/>`) emit a bare `ssrElement(...)` call whose
+                // runtime output is the element's HTML directly. The
+                // client-side compiler treats the same JSX as a static
+                // template chunk inside the parent (`<label><input
+                // ...>`), so there's no hydration walk that expects
+                // markers around it. Wrapping it would put `<!--$-->`
+                // *between* the parent's opening tag and the actual
+                // element — `parent.firstChild` post-hydration would
+                // then resolve to the comment node, not the element,
+                // and refs/listeners would silently bind to the
+                // comment.
+                //
+                // Babel's reference plugin uses `!child.spreadElement`
+                // in `src/ssr/element.js:509,514` to skip marker
+                // emission for the spread case. Since spread elements
+                // are by definition `!is_comp`, the rule simplifies to
+                // "wrap markers iff component child". Static native
+                // elements (no spread) merge static template bytes via
+                // `result.merge` and never need markers either way.
+                if wrap && is_comp {
                     result.push_static("<!--$-->");
                     result.merge(child_result);
                     result.push_static("<!--/-->");
