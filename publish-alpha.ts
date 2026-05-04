@@ -3,6 +3,7 @@
 import { $ } from "bun";
 import { parseArgs } from "util";
 import { dirname, join } from "node:path";
+import { stat } from "node:fs/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
 
@@ -345,23 +346,28 @@ async function collectPublishedSourceFiles(pkg: WorkspacePackage): Promise<strin
   for (const rawEntry of entries) {
     const entry = rawEntry.replace(/\\/g, "/");
     const fullPath = join(pkg.dir, entry);
-    const exists = await Bun.file(fullPath).exists();
 
-    if (exists) {
-      // Concrete file or directory.
-      const stat = await Bun.file(fullPath).stat().catch(() => null);
-      if (stat && stat.isDirectory()) {
-        const glob = new Bun.Glob("**/*.{js,mjs,cjs,jsx,ts,tsx,d.ts}");
-        for await (const rel of glob.scan({ cwd: fullPath, onlyFiles: true })) {
-          result.push(join(fullPath, rel));
-        }
-      } else if (textExtRe.test(entry)) {
-        result.push(fullPath);
+    // Resolve the entry. node:fs/promises#stat handles both files and
+    // directories (Bun.file().exists() returns false for directories, which
+    // is what tripped this up before — only package.json got rewritten,
+    // dist/ and src/ contents were quietly skipped).
+    const stats = await stat(fullPath).catch(() => null);
+
+    if (stats?.isDirectory()) {
+      const glob = new Bun.Glob("**/*.{js,mjs,cjs,jsx,ts,tsx,d.ts}");
+      for await (const rel of glob.scan({ cwd: fullPath, onlyFiles: true })) {
+        result.push(join(fullPath, rel));
       }
       continue;
     }
 
-    // Entry might be a glob (e.g. "*.node"). Run it as a glob from pkg.dir; only keep textual matches.
+    if (stats?.isFile()) {
+      if (textExtRe.test(entry)) result.push(fullPath);
+      continue;
+    }
+
+    // Entry didn't resolve to a concrete path — treat as glob (e.g. "*.node",
+    // though that won't match textual extensions and will be filtered out).
     const glob = new Bun.Glob(entry);
     for await (const rel of glob.scan({ cwd: pkg.dir, onlyFiles: true })) {
       if (textExtRe.test(rel)) result.push(join(pkg.dir, rel));
