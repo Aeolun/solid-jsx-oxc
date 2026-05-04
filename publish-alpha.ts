@@ -10,6 +10,7 @@ type PackageJson = {
   version: string;
   private?: boolean;
   scripts?: Record<string, string>;
+  files?: string[];
   dependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
@@ -21,6 +22,11 @@ type WorkspacePackage = {
   dir: string;
   manifest: PackageJson;
   internalDeps: string[];
+};
+
+type RescopeConfig = {
+  scope: string;            // e.g. "@aeolun"
+  packageNames: Set<string>; // unscoped names that should be rewritten
 };
 
 type Options = {
@@ -38,6 +44,7 @@ type Options = {
   otp?: string;
   only: Set<string>;
   exclude: Set<string>;
+  rescope?: string;
   help: boolean;
 };
 
@@ -83,6 +90,15 @@ Registry:
   --otp <code>               One-time password for 2FA
   --run-scripts              Allow lifecycle scripts during bun publish
 
+Rescope (publish under your own npm scope without committing the rename):
+  --rescope <scope>          Rewrite name + inter-package dep refs to <scope>/<name>
+                             just before publish, restore after. <scope> must
+                             appear as a key under "rescope" in root package.json,
+                             e.g.:
+                               "rescope": { "@aeolun": ["solid-jsx-oxc", ...] }
+                             Implies --only-the-listed-packages: only those names
+                             are considered as publish candidates.
+
 Other:
   -h, --help                 Show help
 
@@ -93,6 +109,7 @@ Examples:
   bun publish-alpha.ts --exclude babel-plugin-jsx-dom-expressions
   bun publish-alpha.ts --tag alpha --publish
   bun publish-alpha.ts --tag next --yes --otp 123456
+  bun publish-alpha.ts --rescope @aeolun --publish --access public
 `.trimStart(),
   );
 }
@@ -286,6 +303,191 @@ function validateTag(tag: string): void {
   }
 }
 
+async function loadRescopeConfig(repoRoot: string, scope: string): Promise<RescopeConfig> {
+  if (!scope.startsWith("@") || !scope.slice(1).length || scope.includes("/")) {
+    throw new UserError(`Invalid --rescope value: "${scope}". Expected an npm scope like "@aeolun".`);
+  }
+
+  const rootManifest = (await Bun.file(join(repoRoot, "package.json")).json()) as {
+    rescope?: Record<string, unknown>;
+  };
+
+  const config = rootManifest?.rescope?.[scope];
+  if (!config || !Array.isArray(config) || config.length === 0) {
+    throw new UserError(
+      `No rescope config found for "${scope}". Add a top-level "rescope" object to package.json:\n` +
+        `  "rescope": { "${scope}": ["solid-jsx-oxc", "vite-plugin-solid-oxc", ...] }`,
+    );
+  }
+
+  for (const entry of config) {
+    if (typeof entry !== "string" || !entry) {
+      throw new UserError(`Invalid rescope entry under "${scope}": ${JSON.stringify(entry)}. Expected unscoped package names.`);
+    }
+  }
+
+  return {
+    scope,
+    packageNames: new Set(config as string[]),
+  };
+}
+
+async function collectPublishedSourceFiles(pkg: WorkspacePackage): Promise<string[]> {
+  // Files we may need to rewrite are those that ship in the npm tarball AND contain
+  // textual import specifiers (JS/TS/declaration files). The `files` field in
+  // package.json is the source of truth; if it's missing, we conservatively scan
+  // the package root.
+  const result: string[] = [];
+  const entries = pkg.manifest.files ?? ["."];
+  const textExtRe = /\.(?:m?jsx?|cjs|tsx?|d\.ts)$/;
+
+  for (const rawEntry of entries) {
+    const entry = rawEntry.replace(/\\/g, "/");
+    const fullPath = join(pkg.dir, entry);
+    const exists = await Bun.file(fullPath).exists();
+
+    if (exists) {
+      // Concrete file or directory.
+      const stat = await Bun.file(fullPath).stat().catch(() => null);
+      if (stat && stat.isDirectory()) {
+        const glob = new Bun.Glob("**/*.{js,mjs,cjs,jsx,ts,tsx,d.ts}");
+        for await (const rel of glob.scan({ cwd: fullPath, onlyFiles: true })) {
+          result.push(join(fullPath, rel));
+        }
+      } else if (textExtRe.test(entry)) {
+        result.push(fullPath);
+      }
+      continue;
+    }
+
+    // Entry might be a glob (e.g. "*.node"). Run it as a glob from pkg.dir; only keep textual matches.
+    const glob = new Bun.Glob(entry);
+    for await (const rel of glob.scan({ cwd: pkg.dir, onlyFiles: true })) {
+      if (textExtRe.test(rel)) result.push(join(pkg.dir, rel));
+    }
+  }
+
+  // Deduplicate
+  return Array.from(new Set(result));
+}
+
+function buildSpecifierRegexes(packageNames: Iterable<string>): { name: string; re: RegExp }[] {
+  return Array.from(packageNames).map((name) => {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // Match a quoted module specifier: "name" or 'name' or "name/subpath" or 'name/subpath'.
+    // Leaves the closing quote and any subpath intact via capture groups.
+    return { name, re: new RegExp(`(['"\`])${escaped}((?:/[^'"\`]*)?)\\1`, "g") };
+  });
+}
+
+type RescopeSnapshot = Map<string, string>; // absolute file path → original content
+
+/**
+ * Translate a `workspace:` version specifier into a concrete one.
+ * Once we rescope, bun publish can no longer follow `workspace:*` because the
+ * workspace package's name has changed but the lockfile still records the old
+ * name. We resolve the protocol here so the published manifest carries a real
+ * version range — the same thing pnpm publish does automatically.
+ */
+function resolveWorkspaceVersion(spec: string, targetVersion: string): string {
+  if (!spec.startsWith("workspace:")) return spec;
+  const range = spec.slice("workspace:".length);
+  if (range === "" || range === "*") return targetVersion;
+  if (range === "^") return `^${targetVersion}`;
+  if (range === "~") return `~${targetVersion}`;
+  // workspace:<explicit-spec> — use the explicit spec verbatim
+  return range;
+}
+
+async function applyRescopeForPackage(
+  pkg: WorkspacePackage,
+  config: RescopeConfig,
+  workspaceVersions: Map<string, string>,
+): Promise<RescopeSnapshot> {
+  const snapshot: RescopeSnapshot = new Map();
+
+  // 1) Rewrite package.json: name + inter-package dep refs.
+  const pkgJsonPath = join(pkg.dir, "package.json");
+  const originalPkgJson = await Bun.file(pkgJsonPath).text();
+  snapshot.set(pkgJsonPath, originalPkgJson);
+
+  const manifest = JSON.parse(originalPkgJson) as PackageJson;
+  let manifestChanged = false;
+
+  if (config.packageNames.has(manifest.name)) {
+    manifest.name = `${config.scope}/${manifest.name}`;
+    manifestChanged = true;
+  }
+
+  for (const depKey of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"] as const) {
+    const deps = (manifest as unknown as Record<string, Record<string, string> | undefined>)[depKey];
+    if (!deps) continue;
+
+    for (const name of Object.keys(deps)) {
+      if (!config.packageNames.has(name)) continue;
+      const originalSpec = deps[name]!;
+      const targetVersion = workspaceVersions.get(name);
+      if (!targetVersion) {
+        throw new UserError(
+          `Cannot resolve workspace version for "${name}" while rescoping "${pkg.name}". ` +
+            `Is it actually in the workspace?`,
+        );
+      }
+      const resolvedSpec = resolveWorkspaceVersion(originalSpec, targetVersion);
+      delete deps[name];
+      deps[`${config.scope}/${name}`] = resolvedSpec;
+      manifestChanged = true;
+    }
+  }
+
+  if (manifestChanged) {
+    // Preserve trailing newline if the original had one.
+    const trailing = originalPkgJson.endsWith("\n") ? "\n" : "";
+    await Bun.write(pkgJsonPath, JSON.stringify(manifest, null, 2) + trailing);
+  } else {
+    snapshot.delete(pkgJsonPath);
+  }
+
+  // 2) Rewrite published source files: replace bare imports of rescoped packages.
+  const regexes = buildSpecifierRegexes(config.packageNames);
+  const filesToScan = await collectPublishedSourceFiles(pkg);
+
+  for (const filepath of filesToScan) {
+    const originalText = await Bun.file(filepath).text();
+    let rewritten = originalText;
+
+    for (const { name, re } of regexes) {
+      rewritten = rewritten.replace(re, (_match, quote: string, subpath: string) => {
+        return `${quote}${config.scope}/${name}${subpath}${quote}`;
+      });
+    }
+
+    if (rewritten !== originalText) {
+      snapshot.set(filepath, originalText);
+      await Bun.write(filepath, rewritten);
+    }
+  }
+
+  return snapshot;
+}
+
+async function restoreRescopeSnapshots(snapshots: Iterable<RescopeSnapshot>): Promise<void> {
+  // Restore in reverse insertion order so later overlays unwind first (defensive; sets are flat in practice).
+  const all: [string, string][] = [];
+  for (const snap of snapshots) {
+    for (const entry of snap) all.push(entry);
+  }
+
+  // Best-effort: don't let a single failed restore stop the others.
+  for (const [filepath, content] of all.reverse()) {
+    try {
+      await Bun.write(filepath, content);
+    } catch (err) {
+      console.error(`⚠️  Failed to restore ${filepath}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+}
+
 function parseCli(): Options {
   const { values } = parseArgs({
     args: Bun.argv.slice(2),
@@ -307,6 +509,7 @@ function parseCli(): Options {
 
       only: { type: "string", multiple: true },
       exclude: { type: "string", multiple: true },
+      rescope: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
     allowPositionals: false,
@@ -334,6 +537,7 @@ function parseCli(): Options {
     otp: values.otp ? String(values.otp) : undefined,
     only: new Set(stringArray(values.only)),
     exclude: new Set(stringArray(values.exclude)),
+    rescope: values.rescope ? String(values.rescope) : undefined,
     help: Boolean(values.help),
   };
 }
@@ -394,22 +598,23 @@ function resolveTargets(
   return candidates.filter((p) => !exclude.has(p.name));
 }
 
-function generateHtmlReport(targets: WorkspacePackage[], options: Options): string {
+function generateHtmlReport(targets: WorkspacePackage[], options: Options, rescopeConfig: RescopeConfig | null): string {
   const registry = options.registry || "https://www.npmjs.com";
   const baseUrl = registry.replace(/\/$/, "");
 
   const packages = targets
-    .map(
-      (pkg) => `
+    .map((pkg) => {
+      const publishedName = rescopeConfig ? `${rescopeConfig.scope}/${pkg.name}` : pkg.name;
+      return `
     <li class="package-item">
-      <a href="${baseUrl}/package/${pkg.name}" target="_blank" class="package-link">
-        <span class="package-name">${pkg.name}</span>
+      <a href="${baseUrl}/package/${publishedName}" target="_blank" class="package-link">
+        <span class="package-name">${publishedName}</span>
         <span class="package-version">@${pkg.version}</span>
       </a>
       <span class="tag-badge">${options.tag}</span>
     </li>
-  `,
-    )
+  `;
+    })
     .join("");
 
   return `
@@ -627,7 +832,22 @@ async function main() {
     throw new UserError("No publishable workspace packages found.");
   }
 
-  const targets = resolveTargets(packages, options.only, options.exclude);
+  const rescopeConfig = options.rescope ? await loadRescopeConfig(repoRoot, options.rescope) : null;
+
+  // When rescoping, restrict the candidate set to the rescope list. Don't try
+  // to publish packages that aren't in scope (e.g. upstream forks).
+  let resolveBase = packages;
+  if (rescopeConfig) {
+    resolveBase = packages.filter((p) => rescopeConfig.packageNames.has(p.name));
+    if (resolveBase.length === 0) {
+      throw new UserError(
+        `No workspace packages match rescope config for "${rescopeConfig.scope}". ` +
+          `Listed names: ${Array.from(rescopeConfig.packageNames).join(", ")}`,
+      );
+    }
+  }
+
+  const targets = resolveTargets(resolveBase, options.only, options.exclude);
 
   if (targets.length === 0) {
     throw new UserError("No matching packages to publish.");
@@ -642,7 +862,14 @@ async function main() {
 
   if (options.list) {
     console.log("\n📦 Publish order:");
-    printTargets(targets);
+    if (rescopeConfig) {
+      for (const pkg of targets) {
+        const scoped = `${rescopeConfig.scope}/${pkg.name}`;
+        console.log(`  • ${pkg.name} → ${scoped}@${pkg.version}`);
+      }
+    } else {
+      printTargets(targets);
+    }
     return;
   }
 
@@ -656,10 +883,17 @@ async function main() {
 
   console.log(`📍 Tag: ${options.tag}`);
   console.log(`📝 Mode: ${options.dryRun ? "🔄 dry-run" : "🚀 publish"}`);
+  if (rescopeConfig) console.log(`🏷️  Rescope: → ${rescopeConfig.scope}/<name>`);
   if (options.registry) console.log(`🌐 Registry: ${options.registry}`);
   if (options.access) console.log(`🔒 Access: ${options.access}`);
   console.log(`📦 Packages (${targets.length}):`);
-  printTargets(targets);
+  if (rescopeConfig) {
+    for (const pkg of targets) {
+      console.log(`  • ${pkg.name} → ${rescopeConfig.scope}/${pkg.name}@${pkg.version}`);
+    }
+  } else {
+    printTargets(targets);
+  }
   console.log("");
 
   const proceed = await promptToProceed(options, targets);
@@ -668,33 +902,72 @@ async function main() {
     return;
   }
 
-  for (const pkg of targets) {
-    console.log(`\n${"─".repeat(60)}`);
-    console.log(`📦 ${pkg.name}@${pkg.version}`);
-    console.log(`${"─".repeat(60)}`);
+  // Track every snapshot so we can restore on success, error, or cancellation.
+  const snapshots: RescopeSnapshot[] = [];
 
-    if (!options.skipBuild && pkg.manifest.scripts?.build) {
-      console.log("\n🔨 Building...");
-      const buildCode = await runWithPty(["bun", "run", "build"], pkg.dir);
-      if (buildCode !== 0) {
-        throw new UserError(`Build failed for ${pkg.name} (exit code ${buildCode})`);
+  // Map of unscoped workspace name → version — used to resolve `workspace:*`
+  // dep specifiers when we rescope (since the workspace name itself changes).
+  const workspaceVersions = new Map(packages.map((p) => [p.name, p.version] as const));
+
+  // Best-effort SIGINT restore — Bun.spawn'd children get the signal too, but if a publish
+  // is mid-flight we still want the working tree clean afterward.
+  let interrupted = false;
+  const sigintHandler = () => {
+    interrupted = true;
+  };
+  process.on("SIGINT", sigintHandler);
+
+  try {
+    for (const pkg of targets) {
+      const displayName = rescopeConfig ? `${rescopeConfig.scope}/${pkg.name}` : pkg.name;
+      console.log(`\n${"─".repeat(60)}`);
+      console.log(`📦 ${displayName}@${pkg.version}`);
+      console.log(`${"─".repeat(60)}`);
+
+      if (!options.skipBuild && pkg.manifest.scripts?.build) {
+        console.log("\n🔨 Building...");
+        const buildCode = await runWithPty(["bun", "run", "build"], pkg.dir);
+        if (buildCode !== 0) {
+          throw new UserError(`Build failed for ${pkg.name} (exit code ${buildCode})`);
+        }
+      }
+
+      // Apply rescope rewrites *after* build (build would otherwise overwrite dist files)
+      // and *before* publish (bun publish reads package.json + ships files from disk).
+      if (rescopeConfig) {
+        console.log(`\n🏷️  Rewriting to ${rescopeConfig.scope}/${pkg.name}...`);
+        const snapshot = await applyRescopeForPackage(pkg, rescopeConfig, workspaceVersions);
+        snapshots.push(snapshot);
+        if (snapshot.size > 0) {
+          console.log(`   Modified ${snapshot.size} file(s) (will be restored after publish).`);
+        }
+      }
+
+      if (interrupted) {
+        throw new UserError("Interrupted before publish.");
+      }
+
+      const publishArgs: string[] = ["bun", "publish", "--tag", options.tag];
+
+      if (options.dryRun) publishArgs.push("--dry-run");
+      if (options.tolerateRepublish) publishArgs.push("--tolerate-republish");
+      if (!options.runScripts) publishArgs.push("--ignore-scripts");
+
+      if (options.registry) publishArgs.push(`--registry=${options.registry}`);
+      if (options.access) publishArgs.push(`--access=${options.access}`);
+      if (options.otp) publishArgs.push(`--otp=${options.otp}`);
+
+      console.log("\n🚢 Publishing...");
+      const publishCode = await runWithPty(publishArgs, pkg.dir);
+      if (publishCode !== 0) {
+        throw new UserError(`Publishing failed for ${pkg.name} (exit code ${publishCode})`);
       }
     }
-
-    const publishArgs: string[] = ["bun", "publish", "--tag", options.tag];
-
-    if (options.dryRun) publishArgs.push("--dry-run");
-    if (options.tolerateRepublish) publishArgs.push("--tolerate-republish");
-    if (!options.runScripts) publishArgs.push("--ignore-scripts");
-
-    if (options.registry) publishArgs.push(`--registry=${options.registry}`);
-    if (options.access) publishArgs.push(`--access=${options.access}`);
-    if (options.otp) publishArgs.push(`--otp=${options.otp}`);
-
-    console.log("\n🚢 Publishing...");
-    const publishCode = await runWithPty(publishArgs, pkg.dir);
-    if (publishCode !== 0) {
-      throw new UserError(`Publishing failed for ${pkg.name} (exit code ${publishCode})`);
+  } finally {
+    process.off("SIGINT", sigintHandler);
+    if (snapshots.length > 0) {
+      console.log("\n♻️  Restoring rewritten files...");
+      await restoreRescopeSnapshots(snapshots);
     }
   }
 
@@ -703,7 +976,7 @@ async function main() {
   console.log(`${"═".repeat(60)}\n`);
 
   // Generate and open HTML report
-  const htmlReport = generateHtmlReport(targets, options);
+  const htmlReport = generateHtmlReport(targets, options, rescopeConfig);
   const reportPath = join(repoRoot, "publish-report.html");
   await Bun.write(reportPath, htmlReport);
 
