@@ -1,4 +1,4 @@
-name: pkg.pr.new
+name: build
 
 on:
   pull_request:
@@ -8,14 +8,13 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 env:
   MACOSX_DEPLOYMENT_TARGET: '10.13'
 
 jobs:
   build:
-    if: "!startsWith(github.ref, 'refs/tags/')"
+    name: build (${{ matrix.settings.target }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -57,36 +56,3 @@ jobs:
         run: |
           bunx @napi-rs/cli build --platform --release --features napi --no-js --dts binding.d.ts \
             --target ${{ matrix.settings.target }} ${{ matrix.settings.flags }}
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: bindings-${{ matrix.settings.target }}
-          path: packages/solid-jsx-oxc/*.node
-          if-no-files-found: error
-
-  publish:
-    if: "!startsWith(github.ref, 'refs/tags/')"
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Install deps
-        run: bun install --ignore-scripts
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: packages/solid-jsx-oxc
-          pattern: bindings-*
-          merge-multiple: true
-      - name: List binaries
-        run: ls -la packages/solid-jsx-oxc/*.node
-      - name: Build plugins
-        run: |
-          cd packages/vite-plugin-solid-oxc && bun run build && cd ../..
-          cd packages/rolldown-plugin-solid-oxc && bun run build && cd ../..
-      - name: Publish preview packages
-        run: bunx pkg-pr-new publish ./packages/solid-jsx-oxc ./packages/vite-plugin-solid-oxc ./packages/rolldown-plugin-solid-oxc ./packages/bun-plugin-solid-oxc
