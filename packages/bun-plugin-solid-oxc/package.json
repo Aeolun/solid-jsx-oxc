@@ -39,5 +39,10 @@
     "@aeolun/solid-jsx-oxc": "workspace:*",
     "@types/bun": "latest",
     "typescript": "^5.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Aeolun/solid-jsx-oxc",
+    "directory": "packages/bun-plugin-solid-oxc"
   }
 }
