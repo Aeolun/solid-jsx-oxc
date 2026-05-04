@@ -37,7 +37,7 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             flags: '--use-napi-cross'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.settings.target }}
@@ -49,7 +49,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           tool: cargo-zigbuild,cargo-xwin
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
       - uses: oven-sh/setup-bun@v2
@@ -60,7 +60,7 @@ jobs:
       # every run (and aren't blocked when Microsoft's CDN slows down).
       - name: Cache xwin (Windows targets only)
         if: contains(matrix.settings.target, 'windows')
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/cargo-xwin
           key: xwin-${{ runner.os }}-v1

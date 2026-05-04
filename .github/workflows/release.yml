@@ -38,10 +38,10 @@ jobs:
       (!startsWith(github.event.head_commit.message, 'release:') &&
        !(startsWith(github.event.head_commit.message, 'Merge') && contains(github.event.head_commit.message, 'release/')))
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0  # full history so just-release can find the last release commit
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '22.14'
       - uses: oven-sh/setup-bun@v2
