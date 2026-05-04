@@ -22,7 +22,7 @@
   "devDependencies": {
     "@babel/core": "^7.29.0",
     "@babel/preset-typescript": "^7.28.5",
-    "just-release": "0.13.4",
+    "just-release": "0.13.5",
     "oxc-parser": "^0.128.0",
     "rimraf": "^5.0.0",
     "typescript": "~5.3.3"
