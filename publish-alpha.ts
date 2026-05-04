@@ -956,8 +956,19 @@ async function main() {
       if (options.access) publishArgs.push(`--access=${options.access}`);
       if (options.otp) publishArgs.push(`--otp=${options.otp}`);
 
-      console.log("\n🚢 Publishing...");
-      const publishCode = await runWithPty(publishArgs, pkg.dir);
+      // Use direct stdio inheritance instead of the pty `data` callback. The
+      // pty wrapper was swallowing the web-2FA URL that npm (proxied through
+      // bun publish) prints when it wants you to authorize via passkey.
+      // Inheriting stdio gives the child the real terminal, so anything it
+      // writes — URLs, progress, prompts — lands directly on yours.
+      console.log(`\n🚢 Publishing...\n`);
+      const publishProc = Bun.spawn(publishArgs, {
+        cwd: pkg.dir,
+        stdin: "inherit",
+        stdout: "inherit",
+        stderr: "inherit",
+      });
+      const publishCode = await publishProc.exited;
       if (publishCode !== 0) {
         throw new UserError(`Publishing failed for ${pkg.name} (exit code ${publishCode})`);
       }
