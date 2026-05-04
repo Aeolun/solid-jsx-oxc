@@ -2,9 +2,9 @@ name: build
 
 on:
   pull_request:
-  push:
-    branches:
-      - main
+  # Pushes to main are handled by publish.yml's build matrix on release
+  # commits, and the prior PR run already verified the build on every other
+  # commit — so no separate push-to-main smoke build is needed here.
 
 permissions:
   contents: read

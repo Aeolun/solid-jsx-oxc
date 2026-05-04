@@ -2,7 +2,7 @@
  * Build script for Bun + Solid SSR
  * Uses Bun's native bundler with solid-oxc plugin
  */
-import solidOxc from 'bun-plugin-solid-oxc';
+import solidOxc from '@aeolun/bun-plugin-solid-oxc';
 
 const args = process.argv.slice(2);
 const buildClient = args.includes('--client') || args.length === 0;

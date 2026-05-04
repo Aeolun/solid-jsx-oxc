@@ -100,18 +100,31 @@ bun run dev
 
 ## Publishing
 
-Use the root-level interactive script:
+Releases are fully automated via [`just-release`](https://github.com/serialexp/just-release)
+in two GitHub Actions workflows:
+
+- **`release.yml`** (push-to-main + `workflow_dispatch`) — `just-release` opens
+  a `release/YYYY-MM-DD` PR with the bumped version and per-package changelogs.
+  The version logic auto-increments the prerelease counter while the repo is in
+  an alpha cycle (`0.1.0-alpha.16 → 0.1.0-alpha.17`). To graduate to stable,
+  push a commit with a `Release-As: stable` footer. To start a fresh prerelease
+  cycle from stable, dispatch the workflow with `prerelease=alpha` (sets
+  `JUST_RELEASE_PRERELEASE` for that run only).
+- **`publish.yml`** (push-to-main, gated on a `release: X.Y.Z` head commit) —
+  builds NAPI binaries for all 6 targets, places them in `npm/<target>/` via
+  `napi artifacts`, then `just-release` `npm publish`es every workspace
+  package (parent + 6 sub-packages + Vite/Rolldown plugins; vendored
+  babel/dom-expressions are `private: true` and skipped) using npm OIDC
+  trusted publishing. No `NPM_TOKEN` required — `id-token: write` permission
+  on the publish job is enough.
+
+All packages live under the `@aeolun/*` scope.
+
+Local dry-run (no publishing):
 
 ```bash
-bun publish-alpha.ts                              # dry run
-bun publish-alpha.ts --publish                    # interactive confirm
-bun publish-alpha.ts --publish --yes              # automated
-bun publish-alpha.ts --tag beta --publish --yes   # different dist-tag
-bun publish-alpha.ts --only solid-jsx-oxc         # subset (with deps)
-bun publish-alpha.ts --exclude babel-plugin-jsx-dom-expressions
+NO_COLOR=1 npx just-release@latest
 ```
-
-Per-package release helpers also exist (e.g. `bun run release:alpha` inside `packages/solid-jsx-oxc`). The root script writes an interactive HTML report (`publish-report.html`) on completion.
 
 ## Notes for Modifications
 

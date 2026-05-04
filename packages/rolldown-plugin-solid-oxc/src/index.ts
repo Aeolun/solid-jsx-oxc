@@ -112,14 +112,14 @@ export default function solidOxc(options: SolidOxcOptions = {}): Plugin {
   const opts = { ...defaultOptions, ...options };
 
   // Lazy load the native module
-  let solidJsxOxc: typeof import('solid-jsx-oxc') | null = null;
+  let solidJsxOxc: typeof import('@aeolun/solid-jsx-oxc') | null = null;
 
   return {
-    name: 'rolldown-plugin-solid-oxc',
+    name: '@aeolun/rolldown-plugin-solid-oxc',
 
     async buildStart() {
       try {
-        solidJsxOxc = await import('solid-jsx-oxc');
+        solidJsxOxc = await import('@aeolun/solid-jsx-oxc');
       } catch (e) {
         this.error(
           'Failed to load solid-jsx-oxc. Make sure it is built for your platform.'

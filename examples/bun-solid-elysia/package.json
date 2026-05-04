@@ -12,8 +12,8 @@
     "solid-js": "^1.9.9"
   },
   "devDependencies": {
-    "bun-plugin-solid-oxc": "workspace:*",
-    "solid-jsx-oxc": "workspace:*",
+    "@aeolun/bun-plugin-solid-oxc": "workspace:*",
+    "@aeolun/solid-jsx-oxc": "workspace:*",
     "typescript": "^5.7.2"
   }
 }

@@ -1,0 +1,180 @@
+name: publish
+
+# Triggered when a release commit lands on main (the squash-merge of the PR
+# that release.yml created). Builds NAPI binaries for all 6 targets, places
+# them into the matching `npm/<target>/` sub-package directories via
+# `napi artifacts`, then runs just-release in post-release mode to publish
+# every package (parent + 6 sub-packages + 3 plugin packages) to npm via
+# trusted publishing, and create a GitHub release.
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  MACOSX_DEPLOYMENT_TARGET: '10.13'
+
+jobs:
+  build:
+    name: build (${{ matrix.settings.target }})
+    # Only run on the release commit (squash merge) or merge of a release branch.
+    if: >-
+      startsWith(github.event.head_commit.message, 'release:') ||
+      (startsWith(github.event.head_commit.message, 'Merge') && contains(github.event.head_commit.message, 'release/'))
+    runs-on: ubuntu-latest
+    # Hard ceiling so a hung Microsoft CDN download (or any other stall)
+    # fails fast instead of burning the full 6-hour default. Cross-compiles
+    # complete in 5–15 min; 30 leaves plenty of headroom.
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - target: x86_64-apple-darwin
+            flags: '-x'
+          - target: aarch64-apple-darwin
+            flags: '-x'
+          - target: x86_64-pc-windows-msvc
+            flags: '-x'
+          - target: aarch64-pc-windows-msvc
+            flags: '-x'
+          - target: x86_64-unknown-linux-gnu
+            flags: '--use-napi-cross'
+          - target: aarch64-unknown-linux-gnu
+            flags: '--use-napi-cross'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.settings.target }}
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.13.0
+      - uses: taiki-e/install-action@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          tool: cargo-zigbuild,cargo-xwin
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: oven-sh/setup-bun@v2
+      - name: Install deps
+        run: bun install --ignore-scripts
+      # cargo-xwin downloads ~700MB of MSVC CRT/headers from Microsoft on
+      # first invocation. Cache it so windows targets don't re-download
+      # every run (and aren't blocked when Microsoft's CDN slows down).
+      - name: Cache xwin (Windows targets only)
+        if: contains(matrix.settings.target, 'windows')
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/cargo-xwin
+          key: xwin-${{ runner.os }}-v1
+      - name: Build native addon
+        working-directory: packages/solid-jsx-oxc
+        env:
+          XWIN_LOG: info
+          RUST_LOG: cargo_xwin=info,xwin=info
+        run: |
+          set -e
+          # Heartbeat: every 20 s, print cache size. Lets us distinguish
+          # "still downloading" from "actually hung" without waiting for
+          # the 30-min job timeout.
+          (
+            while sleep 20; do
+              ts=$(date -u +%H:%M:%S)
+              if [ -d ~/.cache/cargo-xwin ]; then
+                size=$(du -sh ~/.cache/cargo-xwin 2>/dev/null | awk '{print $1}')
+                echo "::notice::[heartbeat $ts] xwin cache: ${size:-?}"
+              else
+                echo "::notice::[heartbeat $ts] xwin cache: <not yet created>"
+              fi
+            done
+          ) &
+          HEARTBEAT_PID=$!
+          trap 'kill $HEARTBEAT_PID 2>/dev/null || true' EXIT
+
+          bunx @napi-rs/cli build --platform --release --features napi --no-js --dts binding.d.ts \
+            --target ${{ matrix.settings.target }} ${{ matrix.settings.flags }}
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings-${{ matrix.settings.target }}
+          path: packages/solid-jsx-oxc/*.node
+          if-no-files-found: error
+
+  publish:
+    name: publish to npm + create GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    # Trusted publishing requires id-token: write to mint OIDC tokens.
+    permissions:
+      contents: write       # just-release pushes tags + creates GitHub releases
+      id-token: write       # npm OIDC trusted publishing
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Trusted publishing requires npm CLI >= 11.5.1 (which needs Node >= 22.14).
+      # See https://docs.npmjs.com/trusted-publishers
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.14'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Upgrade npm to latest (trusted publishing support)
+        run: npm install -g npm@latest
+      - uses: oven-sh/setup-bun@v2
+      - name: Install deps
+        run: bun install --ignore-scripts
+
+      # Pull all per-platform .node binaries into a single staging dir, then
+      # let `napi artifacts` route each one into its `npm/<canonical-target>/`
+      # sub-package. The .node files are named like
+      # `solid-jsx-oxc.<canonical-target>.node` so napi knows where they go.
+      - name: Download all native binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: packages/solid-jsx-oxc/artifacts
+          pattern: bindings-*
+          merge-multiple: true
+      - name: Place binaries into npm sub-packages
+        working-directory: packages/solid-jsx-oxc
+        run: bunx @napi-rs/cli artifacts --npm-dir npm --output-dir artifacts
+      - name: Verify each sub-package received a binary
+        working-directory: packages/solid-jsx-oxc
+        run: |
+          set -e
+          missing=0
+          for dir in npm/*/; do
+            if ! ls "$dir"*.node >/dev/null 2>&1; then
+              echo "::error::No .node file in $dir"
+              missing=1
+            fi
+          done
+          [ $missing -eq 0 ] || exit 1
+          ls -la npm/*/*.node
+
+      - name: Build TS plugins
+        # bun-plugin-solid-oxc ships .ts source directly (Bun consumes it raw),
+        # so it has no build step. The vite/rolldown plugins compile to dist/.
+        run: |
+          bun run --cwd packages/vite-plugin-solid-oxc build
+          bun run --cwd packages/rolldown-plugin-solid-oxc build
+
+      # just-release detects this is a post-release commit (`release: X.Y.Z`)
+      # and runs the publish path: npm publish for every workspace package
+      # (parent + sub-packages + plugins; vendored babel/dom-expressions are
+      # marked private and skipped), then creates a vX.Y.Z GitHub release.
+      # No NPM_TOKEN — the npm CLI uses the OIDC env vars (id-token: write)
+      # for trusted publishing.
+      - name: Publish via just-release
+        run: bunx just-release
+        env:
+          CI: 1
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

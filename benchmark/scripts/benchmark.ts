@@ -10,7 +10,7 @@ import { transformAsync } from "@babel/core"
 import solid from "babel-preset-solid"
 // @ts-expect-error
 import ts from "@babel/preset-typescript"
-import { transform as transformOxc } from "solid-jsx-oxc"
+import { transform as transformOxc } from "@aeolun/solid-jsx-oxc"
 import { Glob } from "bun"
 
 const repoPath = process.argv[2] || "benchmark/solid-primitives"

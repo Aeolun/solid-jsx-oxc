@@ -4,7 +4,7 @@
  * For dev, use: bun run build && bun dist/server.js
  */
 import { plugin } from 'bun';
-import solidOxc from 'bun-plugin-solid-oxc';
+import solidOxc from '@aeolun/bun-plugin-solid-oxc';
 
 // Register the plugin for SSR (server-side rendering)
 plugin(

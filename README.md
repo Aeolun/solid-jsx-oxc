@@ -180,77 +180,30 @@ bun run test
 
 ### Publishing
 
-The repository includes an interactive publish script that uses Bun's Terminal API for real-time output:
+Releases are driven by [`just-release`](https://github.com/serialexp/just-release)
+via two GitHub Actions workflows:
 
-```bash
-# Dry run (default)
-bun publish-alpha.ts
+- **`.github/workflows/release.yml`** — runs on every push to `main` (and on
+  `workflow_dispatch`). Analyzes commits since the last release, opens (or
+  updates) a `release/YYYY-MM-DD` PR with the new version + per-package
+  changelogs. Merging the PR lands a `release: X.Y.Z` commit on `main`.
+- **`.github/workflows/publish.yml`** — fires on the release commit. Builds
+  the NAPI binary for all 6 platforms in parallel, uses
+  `bunx @napi-rs/cli artifacts` to slot each `.node` into its
+  `npm/<target>/` sub-package, then runs `just-release` in post-release mode.
+  `just-release` `npm publish`es every workspace package (parent + 6 NAPI
+  sub-packages + Vite/Rolldown plugins) via npm OIDC trusted publishing — no
+  static `NPM_TOKEN`. Vendored upstream packages (`babel-plugin-jsx-dom-expressions`,
+  `dom-expressions`) are marked `private` and skipped.
 
-# Publish with interactive confirmation
-bun publish-alpha.ts --publish
+#### Starting a prerelease cycle
 
-# Publish automatically (no confirmation)
-bun publish-alpha.ts --publish --yes
-
-# With 2FA
-bun publish-alpha.ts --publish --yes --otp 123456
-
-# Exclude packages
-bun publish-alpha.ts --exclude babel-plugin-jsx-dom-expressions --exclude dom-expressions
-
-# Custom tag
-bun publish-alpha.ts --tag beta --publish --yes
-
-# Options
-#   --tag <name>              Dist-tag (default: alpha)
-#   --only <pkg>              Only publish package and deps (repeatable)
-#   --exclude <pkg>           Exclude packages (repeatable)
-#   --publish                 Actually publish (default: dry-run)
-#   --yes                     Skip confirmation
-#   --tolerate-republish      Allow republishing same version
-#   --allow-dirty             Allow uncommitted changes
-#   --otp <code>              2FA code
-#   --list                    Show publish order and exit
-#   --rescope <scope>         Publish under a different npm scope (see below)
-```
-
-The script generates an interactive HTML report with clickable npm package links at the end.
-
-#### Publishing under a different npm scope
-
-If you maintain a fork and want to publish under your own scope without
-committing the rename — so upstream PRs from your fork stay clean — use
-`--rescope`. The script rewrites each package's `name`, inter-package dep refs,
-and any bare imports in published files (`dist/`, shipped `src/`) just before
-`bun publish`, then restores the working tree afterward (even on error or Ctrl+C).
-
-The set of packages that get rescoped is configured in the root `package.json`:
-
-```jsonc
-"rescope": {
-  "@aeolun": [
-    "solid-jsx-oxc",
-    "vite-plugin-solid-oxc",
-    "rolldown-plugin-solid-oxc",
-    "bun-plugin-solid-oxc"
-  ]
-}
-```
-
-Then publish:
-
-```bash
-# First publish of a scoped package needs --access public.
-bun publish-alpha.ts --rescope @aeolun --publish --access public
-
-# Or via the convenience script:
-bun run publish:scoped --publish
-```
-
-`workspace:*` dep specifiers are resolved to concrete versions during the
-rescope (because the workspace name itself changes — bun can no longer follow
-`workspace:` after the rewrite). Packages outside the rescope list (e.g.
-upstream forks like `dom-expressions`) are not touched and not published.
+While the package is in alpha (`X.Y.Z-alpha.N`), pushes to `main` auto-bump the
+prerelease counter. To enter a prerelease cycle from a stable version, run the
+`release` workflow via **Actions → release → Run workflow**, with `prerelease`
+set to `alpha` (or `beta`, `rc`). To graduate back to stable, push a commit
+with a `Release-As: stable` footer; the next release run drops the prerelease
+segment.
 
 ## License
 

@@ -4,7 +4,7 @@
  */
 import { watch } from 'fs';
 import { join } from 'path';
-import solidOxc from 'bun-plugin-solid-oxc';
+import solidOxc from '@aeolun/bun-plugin-solid-oxc';
 
 const srcDir = join(import.meta.dir, 'src');
 let buildPromise: Promise<void> | null = null;

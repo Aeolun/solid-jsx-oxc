@@ -1,5 +1,5 @@
 {
-  "name": "vite-plugin-solid-oxc",
+  "name": "@aeolun/vite-plugin-solid-oxc",
   "version": "0.1.0-alpha.16",
   "description": "Vite plugin for SolidJS using OXC-based compiler",
   "type": "module",
@@ -31,7 +31,7 @@
   "author": "SolidJS Contributors",
   "license": "MIT",
   "peerDependencies": {
-    "solid-jsx-oxc": "workspace:*",
+    "@aeolun/solid-jsx-oxc": "workspace:*",
     "vite": "^5.0.0 || ^6.0.0 || ^7.0.0"
   },
   "devDependencies": {

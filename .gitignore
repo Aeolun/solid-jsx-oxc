@@ -15,3 +15,4 @@ target/
 # pnpm (project uses npm/lerna workspaces)
 pnpm-lock.yaml
 svelte-oxc/
+publish-report.html

@@ -5,7 +5,7 @@ import { dirname, isAbsolute, resolve as resolvePath } from 'node:path';
 import { readFileSync } from 'node:fs';
 
 // Will be imported from the NAPI bindings
-// import { transform } from 'solid-jsx-oxc';
+// import { transform } from '@aeolun/solid-jsx-oxc';
 
 export interface SolidOxcOptions {
   /**
@@ -172,10 +172,10 @@ export default function solidOxc(options: SolidOxcOptions = {}): Plugin {
   let buildSSR = false;
 
   // Lazy load the native module
-  let solidJsxOxc: typeof import('solid-jsx-oxc') | null = null;
+  let solidJsxOxc: typeof import('@aeolun/solid-jsx-oxc') | null = null;
 
   return {
-    name: 'vite-plugin-solid-oxc',
+    name: '@aeolun/vite-plugin-solid-oxc',
     sharedDuringBuild: false,
 
     enforce: 'pre',
@@ -205,7 +205,7 @@ export default function solidOxc(options: SolidOxcOptions = {}): Plugin {
     async buildStart() {
       // Load the native module
       try {
-        solidJsxOxc = await import('solid-jsx-oxc');
+        solidJsxOxc = await import('@aeolun/solid-jsx-oxc');
       } catch (e) {
         this.error(
           'Failed to load solid-jsx-oxc. Make sure it is built for your platform.\n' +

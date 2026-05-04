@@ -1,5 +1,5 @@
 {
-  "name": "solid-jsx-oxc-linux-x64-gnu",
+  "name": "@aeolun/solid-jsx-oxc-linux-x64-gnu",
   "version": "0.1.0-alpha.16",
   "cpu": [
     "x64"

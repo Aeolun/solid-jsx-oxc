@@ -1,5 +1,5 @@
 {
-  "name": "bun-plugin-solid-oxc",
+  "name": "@aeolun/bun-plugin-solid-oxc",
   "version": "0.1.0-alpha.16",
   "description": "Bun plugin for SolidJS using OXC-based compiler",
   "type": "module",
@@ -33,10 +33,10 @@
   "author": "SolidJS Contributors",
   "license": "MIT",
   "peerDependencies": {
-    "solid-jsx-oxc": ">=0.1.0"
+    "@aeolun/solid-jsx-oxc": ">=0.1.0"
   },
   "devDependencies": {
-    "solid-jsx-oxc": "workspace:*",
+    "@aeolun/solid-jsx-oxc": "workspace:*",
     "@types/bun": "latest",
     "typescript": "^5.0.0"
   }

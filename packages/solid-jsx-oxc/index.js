@@ -27,11 +27,10 @@ const platformKey = `${platform}-${arch}`;
 const nativeTarget = platformMap[platformKey];
 
 // Read our own package name from package.json so the sub-package lookup
-// works whether we were published as `solid-jsx-oxc` (upstream) or
-// `@aeolun/solid-jsx-oxc` (rescoped). publish-alpha.ts rewrites pkg.name
-// during rescope, and the matching sub-packages are
-// `<pkg.name>-<target>` (e.g. `@aeolun/solid-jsx-oxc-linux-arm64-gnu`).
-let pkgName = 'solid-jsx-oxc';
+// keeps working if the package is ever rescoped or forked. The matching
+// sub-packages are `<pkg.name>-<target>` (e.g.
+// `@aeolun/solid-jsx-oxc-linux-arm64-gnu`).
+let pkgName = '@aeolun/solid-jsx-oxc';
 try {
   pkgName = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf-8')).name || pkgName;
 } catch {

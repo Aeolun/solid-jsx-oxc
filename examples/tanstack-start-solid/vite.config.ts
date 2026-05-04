@@ -4,7 +4,7 @@ import viteTsConfigPaths from 'vite-tsconfig-paths'
 import tailwindcss from '@tailwindcss/vite'
 
 import { tanstackStart } from '@tanstack/solid-start/plugin/vite'
-import solidOxc from 'vite-plugin-solid-oxc'
+import solidOxc from '@aeolun/vite-plugin-solid-oxc'
 import { nitro } from 'nitro/vite'
 
 export default defineConfig({

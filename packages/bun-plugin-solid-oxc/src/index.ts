@@ -5,7 +5,7 @@
  *
  * Usage with Bun.build():
  * ```ts
- * import solidPlugin from 'bun-plugin-solid-oxc';
+ * import solidPlugin from '@aeolun/bun-plugin-solid-oxc';
  *
  * await Bun.build({
  *   entrypoints: ['./src/index.tsx'],
@@ -97,11 +97,11 @@ export default function solidOxc(options: SolidOxcOptions = {}): BunPlugin {
   const opts = { ...defaultOptions, ...options };
 
   return {
-    name: 'bun-plugin-solid-oxc',
+    name: '@aeolun/bun-plugin-solid-oxc',
 
     async setup(build) {
       // Load the native module once
-      const solidJsxOxc = await import('solid-jsx-oxc');
+      const solidJsxOxc = await import('@aeolun/solid-jsx-oxc');
 
       // Use Bun's onLoad hook with filter
       build.onLoad({ filter: opts.include! }, async (args) => {

@@ -1,5 +1,5 @@
 {
-  "name": "rolldown-plugin-solid-oxc",
+  "name": "@aeolun/rolldown-plugin-solid-oxc",
   "version": "0.1.0-alpha.16",
   "description": "Rolldown plugin for SolidJS using OXC-based compiler",
   "type": "module",
@@ -32,7 +32,7 @@
   "license": "MIT",
   "peerDependencies": {
     "rolldown": ">=0.1.0",
-    "solid-jsx-oxc": "*"
+    "@aeolun/solid-jsx-oxc": "*"
   },
   "peerDependenciesMeta": {
     "rolldown": {
@@ -40,7 +40,7 @@
     }
   },
   "devDependencies": {
-    "solid-jsx-oxc": "*",
+    "@aeolun/solid-jsx-oxc": "*",
     "@types/node": "^20.0.0",
     "typescript": "^5.0.0"
   }

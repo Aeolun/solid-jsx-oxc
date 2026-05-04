@@ -1,173 +1,57 @@
 name: release
 
+# Creates the release PR via just-release. On push to main, just-release
+# analyzes commits since the last release and opens (or updates) a
+# `release/YYYY-MM-DD` PR with the new version + changelogs. Merging that PR
+# lands a `release: X.Y.Z` commit on main, which triggers `publish.yml`.
+#
+# Manual prerelease entry: workflow_dispatch with `prerelease=alpha` (or beta,
+# rc) graduates a stable repo into a prerelease cycle. Once the first
+# prerelease lands, every subsequent push to main auto-bumps the counter — no
+# need to dispatch again. To graduate back to stable, push a commit with a
+# `Release-As: stable` footer.
+
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'npm dist-tag (e.g. alpha, beta, latest)'
+      prerelease:
+        description: 'Start a prerelease cycle (alpha/beta/rc). Empty = normal release.'
         required: false
-        default: 'alpha'
-      rescope:
-        description: 'npm scope to publish under (must be configured in package.json `rescope`)'
-        required: false
-        default: '@aeolun'
-  push:
-    tags:
-      - 'v*'
+        default: ''
 
 permissions:
-  contents: read
-  id-token: write
-
-env:
-  MACOSX_DEPLOYMENT_TARGET: '10.13'
+  contents: write
+  pull-requests: write
 
 jobs:
-  build:
-    name: build (${{ matrix.settings.target }})
+  release-pr:
+    name: create release PR
     runs-on: ubuntu-latest
-    # Hard ceiling so a hung Microsoft CDN download (or any other stall)
-    # fails fast instead of burning the full 6-hour default. Cross-compiles
-    # complete in 5–15 min; 30 leaves plenty of headroom.
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        settings:
-          - target: x86_64-apple-darwin
-            flags: '-x'
-          - target: aarch64-apple-darwin
-            flags: '-x'
-          - target: x86_64-pc-windows-msvc
-            flags: '-x'
-          - target: aarch64-pc-windows-msvc
-            flags: '-x'
-          - target: x86_64-unknown-linux-gnu
-            flags: '--use-napi-cross'
-          - target: aarch64-unknown-linux-gnu
-            flags: '--use-napi-cross'
+    # Skip on the release commit itself (squash merge of release branch) or
+    # on a regular merge commit of a release branch — those are handled by
+    # publish.yml, not this workflow.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (!startsWith(github.event.head_commit.message, 'release:') &&
+       !(startsWith(github.event.head_commit.message, 'Merge') && contains(github.event.head_commit.message, 'release/')))
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.settings.target }}
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.13.0
-      - uses: taiki-e/install-action@v2
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        with:
-          tool: cargo-zigbuild,cargo-xwin
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - uses: oven-sh/setup-bun@v2
-      - name: Install deps
-        run: bun install --ignore-scripts
-      # cargo-xwin downloads ~700MB of MSVC CRT/headers from Microsoft on
-      # first invocation. Cache it so windows targets don't re-download
-      # every run (and aren't blocked when Microsoft's CDN slows down).
-      - name: Cache xwin (Windows targets only)
-        if: contains(matrix.settings.target, 'windows')
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/cargo-xwin
-          key: xwin-${{ runner.os }}-v1
-      - name: Build native addon
-        working-directory: packages/solid-jsx-oxc
-        env:
-          # Verbose logging from xwin / cargo-xwin so download events surface
-          # in the build log (in addition to the heartbeat below).
-          XWIN_LOG: info
-          RUST_LOG: cargo_xwin=info,xwin=info
-        run: |
-          set -e
-
-          # Heartbeat: every 20 s, print cache size. Lets us distinguish
-          # "still downloading" from "actually hung" without waiting for
-          # the 30-min job timeout.
-          (
-            while sleep 20; do
-              ts=$(date -u +%H:%M:%S)
-              if [ -d ~/.cache/cargo-xwin ]; then
-                size=$(du -sh ~/.cache/cargo-xwin 2>/dev/null | awk '{print $1}')
-                echo "::notice::[heartbeat $ts] xwin cache: ${size:-?}"
-              else
-                echo "::notice::[heartbeat $ts] xwin cache: <not yet created>"
-              fi
-            done
-          ) &
-          HEARTBEAT_PID=$!
-          trap 'kill $HEARTBEAT_PID 2>/dev/null || true' EXIT
-
-          bunx @napi-rs/cli build --platform --release --features napi --no-js --dts binding.d.ts \
-            --target ${{ matrix.settings.target }} ${{ matrix.settings.flags }}
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: bindings-${{ matrix.settings.target }}
-          path: packages/solid-jsx-oxc/*.node
-          if-no-files-found: error
-
-  publish:
-    name: publish to npm
-    needs: build
-    runs-on: ubuntu-latest
-    # Trusted publishing requires the workflow to be able to mint OIDC
-    # ID tokens. Inherits from the workflow-level `permissions:` block
-    # at the top of this file (contents: read, id-token: write).
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-      # Trusted publishing requires npm CLI >= 11.5.1 (which needs Node >= 22.14).
-      # See https://docs.npmjs.com/trusted-publishers
+          fetch-depth: 0  # full history so just-release can find the last release commit
       - uses: actions/setup-node@v4
         with:
           node-version: '22.14'
-          registry-url: 'https://registry.npmjs.org'
-      - name: Upgrade npm
-        run: npm install -g npm@latest
-      - name: Show npm version
-        run: npm --version
       - uses: oven-sh/setup-bun@v2
-      - name: Install deps
+      - name: Install dependencies
         run: bun install --ignore-scripts
-      - name: Download all binaries
-        uses: actions/download-artifact@v4
-        with:
-          path: packages/solid-jsx-oxc
-          pattern: bindings-*
-          merge-multiple: true
-      - name: List binaries
-        run: ls -la packages/solid-jsx-oxc/*.node
-      - name: Build TS plugins
-        run: |
-          bun run --cwd packages/vite-plugin-solid-oxc build
-          bun run --cwd packages/rolldown-plugin-solid-oxc build
-      # Trusted publishing: no NPM_TOKEN required. The npm CLI reads the OIDC
-      # ID token from $ACTIONS_ID_TOKEN_REQUEST_URL / $ACTIONS_ID_TOKEN_REQUEST_TOKEN
-      # (set automatically when `id-token: write` is granted) and exchanges it
-      # for a short-lived publish token via npm's OIDC endpoint. Each package
-      # being published must have this workflow registered as a trusted
-      # publisher on npmjs.com.
-      - name: Publish (rescope ${{ github.event.inputs.rescope || '@aeolun' }})
-        run: |
-          bun publish-alpha.ts \
-            --rescope "${{ github.event.inputs.rescope || '@aeolun' }}" \
-            --tag "${{ github.event.inputs.tag || 'alpha' }}" \
-            --publish --yes \
-            --publisher npm \
-            --access public \
-            --skip-build \
-            --allow-dirty \
-            --tolerate-republish
-      - name: Upload publish report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: publish-report
-          path: publish-report.html
-          if-no-files-found: ignore
+      - name: Run just-release
+        run: bunx just-release
+        env:
+          CI: 1
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Empty on push events; only set when manually dispatching to enter
+          # a prerelease cycle from a stable version.
+          JUST_RELEASE_PRERELEASE: ${{ github.event.inputs.prerelease }}

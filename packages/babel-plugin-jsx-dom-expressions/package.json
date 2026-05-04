@@ -36,5 +36,6 @@
     "@types/babel__core": "^7.20.5",
     "rollup": "^4.0.0"
   },
-  "gitHead": "eb463c653325e24824422cff6bfed0d35113ef33"
+  "gitHead": "eb463c653325e24824422cff6bfed0d35113ef33",
+  "private": true
 }
