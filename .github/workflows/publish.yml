@@ -168,11 +168,15 @@ jobs:
           bun run --cwd packages/rolldown-plugin-solid-oxc build
 
       # just-release detects this is a post-release commit (`release: X.Y.Z`)
-      # and runs the publish path: npm publish for every workspace package
+      # and runs the publish path itself for every workspace package
       # (parent + sub-packages + plugins; vendored babel/dom-expressions are
       # marked private and skipped), then creates a vX.Y.Z GitHub release.
       # No NPM_TOKEN — the npm CLI uses the OIDC env vars (id-token: write)
       # for trusted publishing.
+      #
+      # NOTE: do not write the literal string n-p-m space p-u-b-l-i-s-h
+      # anywhere in this file (even in comments) — just-release's detector
+      # is a substring scan and will refuse to publish if it matches.
       - name: Publish via just-release
         run: bunx just-release
         env:
