@@ -4,6 +4,7 @@ import { $ } from "bun";
 import { parseArgs } from "util";
 import { dirname, join } from "node:path";
 import { stdin as input, stdout as output } from "node:process";
+import { createInterface } from "node:readline/promises";
 
 type PackageJson = {
   name: string;
@@ -546,17 +547,15 @@ async function promptToProceed(options: Options, targets: WorkspacePackage[]): P
   if (options.dryRun) return true;
   if (options.yes) return true;
 
-  process.stdout.write(
-    `\n💬 About to publish ${targets.length} package(s) with tag "${options.tag}". Continue? (y/N) `,
-  );
-
-  const buffer = Buffer.alloc(1);
-  await input.read(buffer, 0, 1);
-  const char = buffer.toString().toLowerCase();
-
-  process.stdout.write("\n");
-
-  return char === "y";
+  const rl = createInterface({ input, output });
+  try {
+    const answer = await rl.question(
+      `\n💬 About to publish ${targets.length} package(s) with tag "${options.tag}". Continue? (y/N) `,
+    );
+    return /^y(es)?$/i.test(answer.trim());
+  } finally {
+    rl.close();
+  }
 }
 
 function printTargets(targets: WorkspacePackage[]) {
