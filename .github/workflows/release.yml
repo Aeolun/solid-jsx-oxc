@@ -76,7 +76,31 @@ jobs:
           key: xwin-${{ runner.os }}-v1
       - name: Build native addon
         working-directory: packages/solid-jsx-oxc
+        env:
+          # Verbose logging from xwin / cargo-xwin so download events surface
+          # in the build log (in addition to the heartbeat below).
+          XWIN_LOG: info
+          RUST_LOG: cargo_xwin=info,xwin=info
         run: |
+          set -e
+
+          # Heartbeat: every 20 s, print cache size. Lets us distinguish
+          # "still downloading" from "actually hung" without waiting for
+          # the 30-min job timeout.
+          (
+            while sleep 20; do
+              ts=$(date -u +%H:%M:%S)
+              if [ -d ~/.cache/cargo-xwin ]; then
+                size=$(du -sh ~/.cache/cargo-xwin 2>/dev/null | awk '{print $1}')
+                echo "::notice::[heartbeat $ts] xwin cache: ${size:-?}"
+              else
+                echo "::notice::[heartbeat $ts] xwin cache: <not yet created>"
+              fi
+            done
+          ) &
+          HEARTBEAT_PID=$!
+          trap 'kill $HEARTBEAT_PID 2>/dev/null || true' EXIT
+
           bunx @napi-rs/cli build --platform --release --features napi --no-js --dts binding.d.ts \
             --target ${{ matrix.settings.target }} ${{ matrix.settings.flags }}
       - name: Upload artifact
