@@ -991,22 +991,15 @@ async function main() {
   console.log(`  ${options.dryRun ? "✅ Dry run complete" : "🎉 Publish complete"}!`);
   console.log(`${"═".repeat(60)}\n`);
 
-  // Generate and open HTML report
+  // Generate HTML report. Don't auto-open — on headless or non-default-GUI
+  // machines `xdg-open` / `open` / `start` just spew errors and fail. Print
+  // the path; the user can click it (most terminals make file:// paths
+  // clickable) or open it manually.
   const htmlReport = generateHtmlReport(targets, options, rescopeConfig);
   const reportPath = join(repoRoot, "publish-report.html");
   await Bun.write(reportPath, htmlReport);
 
-  console.log(`📄 Report saved: ${reportPath}`);
-  console.log("🌐 Opening in browser...\n");
-
-  // Open in default browser
-  if (process.platform === "darwin") {
-    await $`open ${reportPath}`;
-  } else if (process.platform === "linux") {
-    await $`xdg-open ${reportPath}`;
-  } else if (process.platform === "win32") {
-    await $`start ${reportPath}`;
-  }
+  console.log(`📄 Report: file://${reportPath}`);
 }
 
 await main().catch((err) => {
