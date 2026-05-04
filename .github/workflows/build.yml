@@ -54,7 +54,7 @@ jobs:
           node-version: 20
       - uses: oven-sh/setup-bun@v2
       - name: Install deps
-        run: bun install --ignore-scripts
+        run: bun install --ignore-scripts --no-save
       # cargo-xwin downloads ~700MB of MSVC CRT/headers from Microsoft on
       # first invocation. Cache it so windows targets don't re-download
       # every run (and aren't blocked when Microsoft's CDN slows down).

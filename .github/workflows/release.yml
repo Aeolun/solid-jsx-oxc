@@ -46,12 +46,7 @@ jobs:
           node-version: '22.14'
       - uses: oven-sh/setup-bun@v2
       - name: Install dependencies
-        # Reset lockfile after install: bun sometimes rewrites bun.lock with
-        # byte-different but semantically identical content, which would
-        # leave a dirty tree and break just-release's `git checkout -b`.
-        run: |
-          bun install --ignore-scripts
-          git checkout -- bun.lock
+        run: bun install --ignore-scripts --no-save
       - name: Run just-release
         run: bunx just-release
         env:
