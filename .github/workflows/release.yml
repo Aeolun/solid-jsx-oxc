@@ -26,6 +26,10 @@ jobs:
   build:
     name: build (${{ matrix.settings.target }})
     runs-on: ubuntu-latest
+    # Hard ceiling so a hung Microsoft CDN download (or any other stall)
+    # fails fast instead of burning the full 6-hour default. Cross-compiles
+    # complete in 5–15 min; 30 leaves plenty of headroom.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -61,6 +65,15 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - name: Install deps
         run: bun install --ignore-scripts
+      # cargo-xwin downloads ~700MB of MSVC CRT/headers from Microsoft on
+      # first invocation. Cache it so windows targets don't re-download
+      # every run (and aren't blocked when Microsoft's CDN slows down).
+      - name: Cache xwin (Windows targets only)
+        if: contains(matrix.settings.target, 'windows')
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/cargo-xwin
+          key: xwin-${{ runner.os }}-v1
       - name: Build native addon
         working-directory: packages/solid-jsx-oxc
         run: |
