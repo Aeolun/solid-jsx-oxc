@@ -16,5 +16,5 @@
     "@aeolun/solid-jsx-oxc": "workspace:*",
     "typescript": "^5.7.2"
   },
-  "version": "0.1.0-alpha.18"
+  "version": "0.1.0-alpha.19"
 }
