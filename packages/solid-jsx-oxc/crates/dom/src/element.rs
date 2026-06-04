@@ -1297,9 +1297,13 @@ fn transform_inner_content<'a>(
             let Some(target) = expression_to_assignment_target(member) else {
                 return;
             };
+            // innerHTML is assigned as raw HTML and parsed by the browser —
+            // Babel sets `doNotEscape` for it. Pass the author's markup through
+            // verbatim; HTML-escaping here would double-escape `<`/`&` and turn
+            // intentional tags into literal text.
             let value = ast.expression_string_literal(
                 SPAN,
-                ast.allocator.alloc_str(&escape_html(&lit.value, false)),
+                ast.allocator.alloc_str(&lit.value),
                 None,
             );
             result.exprs.push(ast.expression_assignment(

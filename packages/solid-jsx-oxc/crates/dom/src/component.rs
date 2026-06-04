@@ -144,10 +144,16 @@ fn get_children_expr_transformed<'a, 'b>(
             JSXChild::Text(text) => {
                 let content = common::expression::trim_whitespace(&text.value);
                 if !content.is_empty() {
-                    let escaped = common::expression::escape_html(&content, false);
+                    // Component children become a JS string literal that Solid
+                    // inserts via `insert`/textContent at runtime — NOT baked
+                    // into an HTML template. textContent does not decode HTML
+                    // entities, so DECODE them here (matching the SSR backend's
+                    // component.rs and Babel's `transformComponentChildren`).
+                    // HTML-escaping instead would render `&amp;` literally.
+                    let decoded = common::expression::decode_jsx_entities(&content);
                     children.push(ast.expression_string_literal(
                         SPAN,
-                        ast.allocator.alloc_str(&escaped),
+                        ast.allocator.alloc_str(&decoded),
                         None,
                     ));
                 }

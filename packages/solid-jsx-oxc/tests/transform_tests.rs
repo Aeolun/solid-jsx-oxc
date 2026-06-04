@@ -384,6 +384,20 @@ fn test_dom_innerhtml() {
 }
 
 #[test]
+fn test_dom_static_innerhtml_not_escaped() {
+    // innerHTML is assigned as raw HTML and parsed by the browser. Babel sets
+    // `doNotEscape` for innerHTML, so a static string-literal value must pass
+    // through verbatim — NOT HTML-escaped, which would double-escape `<`/`&`
+    // (e.g. an intentional `<b>` would render as literal text).
+    let code = transform_dom(r#"<div innerHTML="<b>&copy;</b>" />"#);
+    assert!(code.contains(".innerHTML"), "got: {code}");
+    assert!(
+        !code.contains("&lt;") && !code.contains("&amp;"),
+        "static innerHTML must not be HTML-escaped, got: {code}"
+    );
+}
+
+#[test]
 fn test_dom_textcontent() {
     let code = transform_dom(r#"<div textContent={text} />"#);
     assert!(code.contains(".textContent"));
@@ -879,6 +893,48 @@ fn test_special_characters() {
     let code = transform_dom(r#"<div>&amp; &lt; &gt;</div>"#);
     // HTML entities should be preserved or properly escaped
     assert!(!code.is_empty());
+}
+
+#[test]
+fn test_component_child_text_decodes_entities_not_escaped() {
+    // Component children are emitted as a JS string literal that Solid inserts
+    // via `insert`/textContent at runtime — NOT baked into an HTML template.
+    // textContent does not decode HTML entities, so the compiler must DECODE
+    // entities here (mirroring the SSR backend's component.rs and Babel's
+    // `transformComponentChildren`), never re-escape them. Regression test for
+    // the DOM backend escaping `&` -> `&amp;` and rendering it literally.
+    let amp = transform_dom(r#"<Button>Comment & resolve</Button>"#);
+    assert!(
+        amp.contains("Comment & resolve"),
+        "bare & should pass through to the JS string, got: {amp}"
+    );
+    assert!(
+        !amp.contains("&amp;"),
+        "component child text must not be HTML-escaped, got: {amp}"
+    );
+
+    // A named entity must be decoded to its character, not escaped or left
+    // literal. We assert the entity form is gone rather than checking the exact
+    // codegen of the decoded char (which may be emitted as the raw char or a
+    // unicode escape).
+    let named = transform_dom(r#"<Button>&copy; 2024</Button>"#);
+    assert!(
+        !named.contains("copy;") && !named.contains("&amp;"),
+        "named entity &copy; must be decoded, not escaped/literal, got: {named}"
+    );
+}
+
+#[test]
+fn test_native_element_text_still_escapes_in_template() {
+    // Contrast with the component case: native element text IS baked into the
+    // HTML template string, where it must stay HTML-escaped so the browser
+    // decodes it on clone. Guards against "fixing" the component path by
+    // disabling escaping globally.
+    let code = transform_dom(r#"<div>a & b</div>"#);
+    assert!(
+        code.contains("a &amp; b"),
+        "native element template text must remain escaped, got: {code}"
+    );
 }
 
 // ============================================================================
