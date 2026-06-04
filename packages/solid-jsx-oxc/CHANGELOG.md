@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha.22 (2026-06-04)
+
+### Bug Fixes
+
+- decode JSX entities in component children, stop escaping innerHTML
+
 ## 0.1.0-alpha.20 (2026-05-04)
 
 ### Bug Fixes
