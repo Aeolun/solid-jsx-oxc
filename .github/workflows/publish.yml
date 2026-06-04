@@ -66,20 +66,26 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - name: Install deps
         run: bun install --ignore-scripts --no-save
-      # cargo-xwin downloads ~700MB of MSVC CRT/headers from Microsoft on
-      # first invocation. Cache it so windows targets don't re-download
-      # every run (and aren't blocked when Microsoft's CDN slows down).
+      # cargo-xwin downloads the MSVC CRT/headers from Microsoft on first
+      # invocation. XWIN_ARCH defaults to "x86_64,aarch64", so without the
+      # per-leg pin below each Windows target needlessly downloads the OTHER
+      # arch's CRT + SDK libs too. Pin it to this leg's arch (the headers are
+      # arch-independent and downloaded either way; this drops the unused
+      # arch's libs). The cache key carries the arch so the two legs don't
+      # clobber each other's (now arch-specific) cache.
       - name: Cache xwin (Windows targets only)
         if: contains(matrix.settings.target, 'windows')
         uses: actions/cache@v5
         with:
           path: ~/.cache/cargo-xwin
-          key: xwin-${{ runner.os }}-v1
+          key: xwin-${{ runner.os }}-${{ contains(matrix.settings.target, 'aarch64') && 'aarch64' || 'x86_64' }}-v2
       - name: Build native addon
         working-directory: packages/solid-jsx-oxc
         env:
           XWIN_LOG: info
           RUST_LOG: cargo_xwin=info,xwin=info
+          # Only fetch the CRT/SDK libs for the arch this leg actually builds.
+          XWIN_ARCH: ${{ contains(matrix.settings.target, 'aarch64') && 'aarch64' || 'x86_64' }}
         run: |
           set -e
           # Heartbeat: every 20 s, print cache size. Lets us distinguish
