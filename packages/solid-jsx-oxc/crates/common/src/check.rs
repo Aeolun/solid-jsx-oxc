@@ -6,7 +6,7 @@ use oxc_ast::ast::{
     JSXElementName, JSXMemberExpression, JSXMemberExpressionObject,
 };
 
-use crate::constants::{BUILT_INS, SVG_ELEMENTS};
+use crate::constants::{BUILT_INS, MATHML_ELEMENTS, SVG_ELEMENTS};
 use crate::expression::expr_to_string;
 
 /// Check if a tag name represents a component (starts with uppercase or contains dot)
@@ -26,6 +26,31 @@ pub fn is_built_in(tag: &str) -> bool {
 /// Check if this is an SVG element
 pub fn is_svg_element(tag: &str) -> bool {
     SVG_ELEMENTS.contains(tag)
+}
+
+/// Check if this is a MathML element
+pub fn is_mathml_element(tag: &str) -> bool {
+    MATHML_ELEMENTS.contains(tag)
+}
+
+/// Whether a finished template string's *root* (leading) tag is a MathML
+/// element. Mirrors the `isMathML` regex in
+/// `babel-plugin-jsx-dom-expressions/src/dom/template.js`, which tests
+/// `/^<(math|mi|mrow|…)(\s|>)/` against the template string. A template whose
+/// first tag is MathML must carry the runtime `isMathML` flag so it is created
+/// in the MathML namespace; this includes a root `<math>` (unlike SVG, where a
+/// literal `<svg>` root needs no flag) because MathML templates are never
+/// wrapped — the flag alone drives namespace creation in the runtime.
+pub fn template_is_mathml(template: &str) -> bool {
+    let rest = match template.strip_prefix('<') {
+        Some(r) => r,
+        None => return false,
+    };
+    // The tag name runs up to the first whitespace or '>'.
+    let end = rest
+        .find(|c: char| c.is_whitespace() || c == '>')
+        .unwrap_or(rest.len());
+    is_mathml_element(&rest[..end])
 }
 
 /// Get the tag name from a JSX element

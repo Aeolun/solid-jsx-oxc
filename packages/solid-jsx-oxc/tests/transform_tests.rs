@@ -862,6 +862,106 @@ fn test_svg_element() {
     assert!(code.contains("circle"));
 }
 
+/// A literal `<svg>` root must NOT carry the runtime `isSVG` flag: the HTML
+/// parser already namespaces a `<svg>` template and its static children, and
+/// `template()` returns `content.firstChild` for it. Emitting `isSVG=true`
+/// here would make the runtime unwrap one level too far (`firstChild.firstChild`)
+/// and return the inner `<circle>` instead of the `<svg>`.
+#[test]
+fn test_svg_root_not_flagged() {
+    let code = transform_dom(r#"<svg><circle cx="1" /></svg>"#);
+    // The whole `<svg>…</svg>` is one static template with no extra args.
+    assert!(
+        code.contains(r#"template(`<svg><circle cx="1"></circle></svg>`)"#),
+        "root <svg> template should be unwrapped and unflagged, got:\n{code}"
+    );
+    // It must NOT be flagged as needing runtime SVG unwrapping.
+    assert!(
+        !code.contains(r#"template(`<svg><circle cx="1"></circle></svg>`, false, true"#),
+        "root <svg> must not carry the isSVG runtime flag, got:\n{code}"
+    );
+}
+
+/// Regression for the SVG-namespace bug: an SVG element (`<path>`, `<circle>`, …)
+/// that is the *root* of its own template because it sits inside a component
+/// boundary (`<Show>`/`<For>`/`<Index>`/`<Switch>`) must be wrapped in a
+/// synthetic `<svg>…</svg>` in the template string AND emitted with the runtime
+/// `isSVG` flag (`template(html, /*isImportNode*/ false, /*isSVG*/ true)`), so
+/// the runtime unwraps via `content.firstChild.firstChild` and returns a node in
+/// the SVG namespace. Without this the `<path>` is created as an
+/// XHTML-namespaced `HTMLUnknownElement` — present in the DOM with attributes
+/// set, but never painted as vector geometry (Babel's `wrapSVG` behaviour).
+#[test]
+fn test_dynamic_svg_child_is_namespace_wrapped() {
+    let code =
+        transform_dom(r#"<svg><Show when={x()}><path d="M0 0" /></Show></svg>"#);
+    // The `<path>` template is wrapped in a synthetic <svg> and flagged isSVG.
+    // Arg shape mirrors Babel: `(html, isImportNode=false, isSVG=true, isMathML=false)`.
+    assert!(
+        code.contains(r#"template(`<svg><path d="M0 0"></path></svg>`, false, true, false)"#),
+        "dynamic <path> child should be synthetic-<svg>-wrapped and isSVG-flagged, got:\n{code}"
+    );
+    // The flag lands at arg position 2 (isSVG), NOT position 1 (isImportNode):
+    // a `, true` immediately after the template literal would be the old bug.
+    assert!(
+        !code.contains(r#"template(`<svg><path d="M0 0"></path></svg>`, true"#),
+        "isSVG flag must be the 3rd arg, not the 2nd (isImportNode), got:\n{code}"
+    );
+}
+
+/// Same fix through `<For>` (the most common heterogeneous-SVG-child case in
+/// practice — node/edge graphs). The dynamic `<circle>` child is its own
+/// template and must be wrapped + flagged.
+#[test]
+fn test_dynamic_svg_child_via_for_is_wrapped() {
+    let code = transform_dom(
+        r#"<svg><For each={items()}>{(i) => <circle cx={i} />}</For></svg>"#,
+    );
+    assert!(
+        code.contains(r#"template(`<svg><circle></circle></svg>`, false, true, false)"#),
+        "dynamic <circle> child via <For> should be synthetic-<svg>-wrapped and isSVG-flagged, got:\n{code}"
+    );
+}
+
+/// MathML is the namespace sibling of SVG: a template whose root tag is a MathML
+/// element (`<mrow>`, `<mi>`, …) must carry the runtime `isMathML` flag (4th arg)
+/// so the node is created in the MathML namespace. Unlike SVG there is no
+/// synthetic wrapper — only the flag. A bare MathML element produced through a
+/// component/`<For>`/`<Show>` boundary is its own template root, so it must be
+/// flagged; without it the element is created in the XHTML namespace (the exact
+/// analog of the SVG bug). Mirrors Babel's `isMathML` regex.
+#[test]
+fn test_dynamic_mathml_child_is_flagged() {
+    let code =
+        transform_dom(r#"<math><Show when={x()}><mrow><mi>x</mi></mrow></Show></math>"#);
+    assert!(
+        code.contains(r#"template(`<mrow><mi>x</mi></mrow>`, false, false, true)"#),
+        "dynamic <mrow> child should be isMathML-flagged (no wrap), got:\n{code}"
+    );
+}
+
+/// Unlike a literal `<svg>` root (which needs no flag), a literal `<math>` root
+/// IS flagged isMathML — Babel detects MathML purely from the template's leading
+/// tag, so the root `<math>` template starts with `<math` and matches.
+#[test]
+fn test_mathml_root_is_flagged() {
+    let code = transform_dom(r#"<math><mrow><mi>x</mi></mrow></math>"#);
+    assert!(
+        code.contains(r#"template(`<math><mrow><mi>x</mi></mrow></math>`, false, false, true)"#),
+        "root <math> should carry the isMathML flag, got:\n{code}"
+    );
+}
+
+/// A plain HTML template must remain unflagged — no spurious namespace args.
+#[test]
+fn test_plain_html_has_no_namespace_flags() {
+    let code = transform_dom(r#"<div class="x">hi</div>"#);
+    assert!(
+        code.contains(r#"template(`<div class="x">hi</div>`)"#),
+        "plain HTML template should have no flag args, got:\n{code}"
+    );
+}
+
 #[test]
 fn test_custom_element() {
     let code = transform_dom(r#"<my-element attr="value">content</my-element>"#);
@@ -1961,4 +2061,3 @@ fn ssr_regression_hydratable_spread_element_no_children_does_not_wrap_undefined(
         code
     );
 }
-

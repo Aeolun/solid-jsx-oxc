@@ -52,6 +52,7 @@
     "test": "cargo test",
     "test:js": "bun run verify",
     "verify": "bun scripts/verify.mjs",
+    "conformance": "node scripts/babel-conformance.cjs",
     "bench": "cargo bench",
     "release": "bun scripts/release.mjs",
     "release:alpha": "bun scripts/release.mjs alpha",

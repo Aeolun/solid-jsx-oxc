@@ -150,6 +150,14 @@ pub fn transform_element<'a, 'b>(
 ) -> TransformResult<'a> {
     let ast = context.ast();
     let is_svg = is_svg_element(tag_name);
+    // Babel's `wrapSVG`: only when this element is the *root* of its template and
+    // is an SVG element other than `<svg>` itself. A bare `<path>`/`<circle>`
+    // emitted as a `<For>`/`<Show>` branch compiles to its own template whose
+    // root is the SVG child — without the synthetic `<svg>` wrapper the HTML
+    // template parser would create it in the XHTML namespace (an
+    // `HTMLUnknownElement` that never paints). A literal `<svg>` root is excluded
+    // because the parser already namespaces a `<svg>` template correctly.
+    let wrap_svg = info.top_level && tag_name != "svg" && is_svg;
     let is_void = VOID_ELEMENTS.contains(tag_name);
     let is_custom_element = tag_name.contains('-');
 
@@ -157,6 +165,7 @@ pub fn transform_element<'a, 'b>(
         span: element.span,
         tag_name: Some(tag_name.to_string()),
         is_svg,
+        wrap_svg,
         has_custom_element: is_custom_element,
         ..Default::default()
     };
@@ -183,8 +192,11 @@ pub fn transform_element<'a, 'b>(
         }
     }
 
-    // Start building template
-    result.template = format!("<{}", tag_name);
+    // Start building template. When `wrap_svg`, prefix a synthetic `<svg>` so the
+    // template parses the SVG-root in the SVG namespace; the runtime `template()`
+    // unwraps it (`firstChild.firstChild`). Mirrors babel dom/element.js.
+    let svg_open = if wrap_svg { "<svg>" } else { "" };
+    result.template = format!("{}<{}", svg_open, tag_name);
     result.template_with_closing_tags = result.template.clone();
 
     // Transform attributes
@@ -224,6 +236,13 @@ pub fn transform_element<'a, 'b>(
         result
             .template_with_closing_tags
             .push_str(&format!("</{}>", tag_name));
+    }
+
+    // Close the synthetic SVG wrapper (see `wrap_svg` above). Done after the
+    // element's own closing tag so the wrapper brackets the whole root.
+    if wrap_svg {
+        result.template.push_str("</svg>");
+        result.template_with_closing_tags.push_str("</svg>");
     }
 
     // At the top of the JSX tree, emit `runHydrationEvents()` after all the

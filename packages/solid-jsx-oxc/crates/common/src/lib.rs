@@ -6,7 +6,8 @@ pub mod xhtml;
 
 pub use check::{
     find_prop, find_prop_value, get_attr_name, get_attr_value, get_tag_name, is_built_in,
-    is_component, is_dynamic, is_dynamic_for_spread, is_namespaced_attr, is_svg_element,
+    is_component, is_dynamic, is_dynamic_for_spread, is_mathml_element, is_namespaced_attr,
+    is_svg_element, template_is_mathml,
 };
 pub use constants::*;
 pub use expression::{

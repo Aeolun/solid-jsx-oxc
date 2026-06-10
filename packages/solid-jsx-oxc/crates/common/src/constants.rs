@@ -143,6 +143,47 @@ pub static SVG_ELEMENTS: Set<&'static str> = phf_set! {
     "view",
 };
 
+/// MathML elements. Mirrors the alternation in
+/// `babel-plugin-jsx-dom-expressions/src/dom/template.js`'s `isMathML` regex.
+/// Used to flag a template whose *root* rendered tag is a MathML element so the
+/// runtime `template(html, isImportNode, isSVG, isMathML)` creates it in the
+/// MathML namespace. Unlike SVG, MathML templates are NOT wrapped in a synthetic
+/// parent — only the `isMathML` flag is set (the runtime handles unwrapping).
+pub static MATHML_ELEMENTS: Set<&'static str> = phf_set! {
+    "math",
+    "annotation",
+    "annotation-xml",
+    "maction",
+    "menclose",
+    "merror",
+    "mfenced",
+    "mfrac",
+    "mi",
+    "mmultiscripts",
+    "mn",
+    "mo",
+    "mover",
+    "mpadded",
+    "mphantom",
+    "mprescripts",
+    "mroot",
+    "mrow",
+    "ms",
+    "mspace",
+    "msqrt",
+    "mstyle",
+    "msub",
+    "msubsup",
+    "msup",
+    "mtable",
+    "mtd",
+    "mtext",
+    "mtr",
+    "munder",
+    "munderover",
+    "semantics",
+};
+
 /// Void elements (self-closing)
 pub static VOID_ELEMENTS: Set<&'static str> = phf_set! {
     "area",

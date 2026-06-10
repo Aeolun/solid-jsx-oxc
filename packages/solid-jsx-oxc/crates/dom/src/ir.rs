@@ -36,8 +36,21 @@ pub struct TransformResult<'a> {
     /// Post-expressions (run after main effects)
     pub post_exprs: Vec<Expression<'a>>,
 
-    /// Whether this is SVG
+    /// Whether this element is an SVG element (`SVGElements.has(tag)`). Drives
+    /// attribute handling (case-sensitivity, `class` vs `className`, `setAttribute`
+    /// vs property) for this element and its dynamic bindings. True for `<svg>`
+    /// itself and every SVG child (`<path>`, `<circle>`, …).
     pub is_svg: bool,
+
+    /// Whether this element is the *root* of a template AND an SVG element other
+    /// than `<svg>` itself — Babel's `wrapSVG = topLevel && tag != "svg" &&
+    /// SVGElements.has(tag)`. When true the template string is wrapped in a
+    /// synthetic `<svg>…</svg>` so the browser parses the root (e.g. a bare
+    /// `<path>` produced as a `<For>`/`<Show>` branch) in the SVG namespace, and
+    /// the `template()` call is emitted with the runtime `isSVG` flag so it
+    /// unwraps via `firstChild.firstChild`. A literal `<svg>` root needs neither
+    /// (the HTML parser already namespaces a `<svg>` template and its children).
+    pub wrap_svg: bool,
 
     /// Whether this contains custom elements
     pub has_custom_element: bool,

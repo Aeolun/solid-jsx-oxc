@@ -150,7 +150,11 @@ pub fn build_dom_output_expr<'a>(
     if !result.template.is_empty() && !result.skip_template {
         // Push template and get variable name
         // The template string is generated code; don't attribute it to the source with spans.
-        let tmpl_idx = context.push_template(result.template.clone(), result.is_svg, gen_span);
+        // `wrap_svg` (not `is_svg`): the template-level flag is Babel's `wrapSVG`,
+        // true only for a non-`<svg>` SVG root that we wrapped in a synthetic
+        // `<svg>`. A literal `<svg>` root has `is_svg = true` but `wrap_svg = false`
+        // and must NOT carry the runtime `isSVG` flag (it parses correctly as-is).
+        let tmpl_idx = context.push_template(result.template.clone(), result.wrap_svg, gen_span);
         let tmpl_var = format!("_tmpl${}", tmpl_idx + 1);
 
         // Use the generated element ID when available (matches expression wiring).

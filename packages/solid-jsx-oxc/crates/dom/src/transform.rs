@@ -454,11 +454,33 @@ impl<'a> Traverse<'a, ()> for SolidTransform<'a> {
             let template_lit = ast.template_literal(tmpl_span, quasis, ast.vec());
             let template_expr = Expression::TemplateLiteral(ast.alloc(template_lit));
 
-            let mut args = ast.vec_with_capacity(if tmpl.is_svg { 2 } else { 1 });
+            // Runtime signature is `template(html, isImportNode, isSVG, isMathML)`.
+            //
+            // - `isSVG` (arg 2): set for a synthetic-`<svg>`-wrapped template
+            //   (`tmpl.is_svg`, i.e. Babel's `wrapSVG`). The runtime unwraps it
+            //   via `content.firstChild.firstChild`; without it the root renders
+            //   in the XHTML namespace (invisible).
+            // - `isMathML` (arg 3): set when the template's root tag is a MathML
+            //   element. Unlike SVG there is no synthetic wrapper — the flag
+            //   alone tells the runtime to create the node in the MathML
+            //   namespace. Detected from the finished template string to mirror
+            //   Babel's `isMathML` regex, so a root `<math>` is flagged too.
+            //
+            // Mirror Babel's arg shape: when any namespace flag is set, emit all
+            // three booleans `[isImportNode, isSVG, isMathML]`.
+            let is_math = common::template_is_mathml(&tmpl.content);
+            let needs_flags = tmpl.is_svg || is_math;
+            let mut args = ast.vec_with_capacity(if needs_flags { 4 } else { 1 });
             args.push(Argument::from(template_expr));
-            if tmpl.is_svg {
+            if needs_flags {
                 args.push(Argument::from(
-                    ast.expression_boolean_literal(tmpl_span, true),
+                    ast.expression_boolean_literal(tmpl_span, false), // isImportNode
+                ));
+                args.push(Argument::from(
+                    ast.expression_boolean_literal(tmpl_span, tmpl.is_svg), // isSVG
+                ));
+                args.push(Argument::from(
+                    ast.expression_boolean_literal(tmpl_span, is_math), // isMathML
                 ));
             }
 
