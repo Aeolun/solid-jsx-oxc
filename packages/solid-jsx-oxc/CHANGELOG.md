@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.0-alpha.23 (2026-06-11)
+
+### Features
+
+- match babel's SVG + MathML namespace handling
+
+### Chores
+
+- remove manual release.mjs script
+
 ## 0.1.0-alpha.22 (2026-06-04)
 
 ### Bug Fixes

@@ -1,6 +1,6 @@
 {
   "name": "@aeolun/solid-jsx-oxc",
-  "version": "0.1.0-alpha.22",
+  "version": "0.1.0-alpha.23",
   "description": "OXC-based JSX compiler for SolidJS",
   "type": "module",
   "main": "index.js",
@@ -59,12 +59,12 @@
     "@napi-rs/cli": "^3.5.0"
   },
   "optionalDependencies": {
-    "@aeolun/solid-jsx-oxc-darwin-arm64": "0.1.0-alpha.22",
-    "@aeolun/solid-jsx-oxc-darwin-x64": "0.1.0-alpha.22",
-    "@aeolun/solid-jsx-oxc-linux-arm64-gnu": "0.1.0-alpha.22",
-    "@aeolun/solid-jsx-oxc-linux-x64-gnu": "0.1.0-alpha.22",
-    "@aeolun/solid-jsx-oxc-win32-arm64-msvc": "0.1.0-alpha.22",
-    "@aeolun/solid-jsx-oxc-win32-x64-msvc": "0.1.0-alpha.22"
+    "@aeolun/solid-jsx-oxc-darwin-arm64": "0.1.0-alpha.23",
+    "@aeolun/solid-jsx-oxc-darwin-x64": "0.1.0-alpha.23",
+    "@aeolun/solid-jsx-oxc-linux-arm64-gnu": "0.1.0-alpha.23",
+    "@aeolun/solid-jsx-oxc-linux-x64-gnu": "0.1.0-alpha.23",
+    "@aeolun/solid-jsx-oxc-win32-arm64-msvc": "0.1.0-alpha.23",
+    "@aeolun/solid-jsx-oxc-win32-x64-msvc": "0.1.0-alpha.23"
   },
   "engines": {
     "node": ">= 18"
