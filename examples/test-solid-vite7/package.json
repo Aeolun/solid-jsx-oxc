@@ -1,7 +1,7 @@
 {
   "name": "test-solid-vite7",
   "private": true,
-  "version": "0.1.0-alpha.22",
+  "version": "0.1.0-alpha.23",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,9 +12,9 @@
     "solid-js": "^1.9.10"
   },
   "devDependencies": {
-    "@aeolun/solid-jsx-oxc": "0.1.0-alpha.22",
+    "@aeolun/solid-jsx-oxc": "0.1.0-alpha.23",
     "typescript": "~5.3.3",
     "vite": "^6.0.0",
-    "@aeolun/vite-plugin-solid-oxc": "0.1.0-alpha.22"
+    "@aeolun/vite-plugin-solid-oxc": "0.1.0-alpha.23"
   }
 }
