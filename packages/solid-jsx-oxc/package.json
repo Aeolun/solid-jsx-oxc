@@ -53,11 +53,7 @@
     "test:js": "bun run verify",
     "verify": "bun scripts/verify.mjs",
     "conformance": "node scripts/babel-conformance.cjs",
-    "bench": "cargo bench",
-    "release": "bun scripts/release.mjs",
-    "release:alpha": "bun scripts/release.mjs alpha",
-    "release:beta": "bun scripts/release.mjs beta",
-    "release:next": "bun scripts/release.mjs next"
+    "bench": "cargo bench"
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.5.0"
