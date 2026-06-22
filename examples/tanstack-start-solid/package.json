@@ -25,9 +25,9 @@
   },
   "devDependencies": {
     "@tanstack/devtools-vite": "^0.3.11",
-    "@aeolun/solid-jsx-oxc": "0.1.0-alpha.23",
+    "@aeolun/solid-jsx-oxc": "0.1.0-alpha.24",
     "typescript": "^5.7.2",
-    "@aeolun/vite-plugin-solid-oxc": "0.1.0-alpha.23"
+    "@aeolun/vite-plugin-solid-oxc": "0.1.0-alpha.24"
   },
-  "version": "0.1.0-alpha.23"
+  "version": "0.1.0-alpha.24"
 }

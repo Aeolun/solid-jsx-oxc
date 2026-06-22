@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha.24 (2026-06-22)
+
+### Bug Fixes
+
+- keep native children of spread elements out of the hydration-key counter
+
 ## 0.1.0-alpha.23 (2026-06-11)
 
 ### Features
