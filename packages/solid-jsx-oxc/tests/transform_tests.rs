@@ -1294,6 +1294,43 @@ fn ssr_regression_element_with_spread_uses_merge_props() {
 }
 
 #[test]
+fn ssr_regression_spread_element_native_child_has_no_hydration_key() {
+    // <a {...rest}>{leading}<div class="main">…</div></a> — the body shape of
+    // a spread-hosted ListItem row. The native child `<div class="main">` is a
+    // *static descendant* of the parent `<a>` template: on the DOM side the
+    // client reaches it by `firstChild`/`nextSibling` walking from the
+    // parent's single `getNextElement`, never by its own hydration key. So its
+    // SSR `ssr\`…\`` chunk MUST NOT prepend `ssrHydrationKey()` — doing so
+    // over-allocates one context id and drifts the SSR hydration counter ahead
+    // of the DOM counter, surfacing at runtime as
+    //   `Hydration Mismatch. Unable to find DOM nodes for hydration key …`.
+    // Babel's spread-element `createElement` transforms these children with
+    // `topLevel` unset for exactly this reason. The dynamic `{leading}` insert
+    // still gets `<!--$-->`/`<!--/-->` markers; only the static child's key
+    // must be absent.
+    let code = transform_ssr_hydratable_re(
+        r#"const x = <a {...rest}>{leading}<div class="main"><span class="title">{title}</span></div></a>;"#,
+    );
+    // The spread parent itself is an ssrElement with a key (4th arg `true`).
+    assert!(
+        code.contains("ssrElement("),
+        "Spread element should emit ssrElement(). Got:\n{}",
+        code
+    );
+    // The nested static child div must be a bare ssr template WITHOUT a key.
+    assert!(
+        code.contains("ssr`<div class=\"main\">"),
+        "Nested static child must be a keyless ssr template (`<div class=\"main\">`, no ssrHydrationKey). Got:\n{}",
+        code
+    );
+    assert!(
+        !code.contains("<div${ssrHydrationKey()}"),
+        "Nested static child of a spread element must NOT emit ssrHydrationKey(). Got:\n{}",
+        code
+    );
+}
+
+#[test]
 fn ssr_regression_solitary_dynamic_child_has_no_markers() {
     // A parent with a SINGLE meaningful child must NOT wrap that child with
     // `<!--$-->`/`<!--/-->`. Babel's rule: `markers = hydratable && multi`,

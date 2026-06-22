@@ -493,7 +493,19 @@ fn transform_element_with_spread<'a>(
                             &child_transformer,
                         )
                     } else {
-                        transform_element(child_elem, &child_tag, context, options)
+                        // A native element nested inside a spread (`ssrElement`)
+                        // parent is a *static descendant* of the parent's
+                        // template on the DOM side — the client reaches it by
+                        // `firstChild`/`nextSibling` walking from the parent's
+                        // single `getNextElement`, never by its own hydration
+                        // key. Emitting `ssrHydrationKey()` here (via the
+                        // top-level entry) over-allocates one context id and
+                        // drifts the SSR counter ahead of the DOM counter,
+                        // surfacing as `Hydration Mismatch. Unable to find DOM
+                        // nodes for hydration key …`. Babel's spread-element
+                        // `createElement` transforms these children with
+                        // `topLevel` unset (falsy) for the same reason.
+                        transform_element_nested(child_elem, &child_tag, context, options)
                     };
 
                     // Components are dynamic; native static elements are
