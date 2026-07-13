@@ -127,11 +127,15 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      # Trusted publishing requires npm CLI >= 11.5.1 (which needs Node >= 22.14).
+      # Trusted publishing requires a recent npm CLI (>= 11.5.1), which we get
+      # via `npm install -g npm@latest` below. `npm@latest` keeps bumping its
+      # Node engine floor (e.g. npm@12 needs Node ^22.22 || ^24.15 || >=26), so
+      # pinning an exact Node patch drifts out of support. Track the latest LTS
+      # instead so the runner's Node always satisfies whatever npm@latest needs.
       # See https://docs.npmjs.com/trusted-publishers
       - uses: actions/setup-node@v6
         with:
-          node-version: '22.14'
+          node-version: 'lts/*'
           registry-url: 'https://registry.npmjs.org'
       - name: Upgrade npm to latest (trusted publishing support)
         run: npm install -g npm@latest
