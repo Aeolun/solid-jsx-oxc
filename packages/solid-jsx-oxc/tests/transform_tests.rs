@@ -1331,6 +1331,76 @@ fn ssr_regression_spread_element_native_child_has_no_hydration_key() {
 }
 
 #[test]
+fn ssr_regression_nested_spread_element_has_no_hydration_key() {
+    // Symptom Bart hit in Gothab: a `SplitButton` shaped like
+    //
+    //   <div class="split"><button {...rest}><Icon/>{label}</button></div>
+    //
+    // threw `Hydration Mismatch. Unable to find DOM nodes for hydration key …
+    // <svg> at Icon` on the client. `@gothab/ui`'s Button never hit it because
+    // *its* `<button>` is the template root.
+    //
+    // Cause: the spread `<button>` is NESTED inside the wrapper `<div>`. On the
+    // DOM side the client reaches it by `firstChild` walking from the `<div>`'s
+    // single `getNextElement`, and `spread()` on it advances no hydration
+    // counter. But the SSR transform emitted `ssrElement("button", …, true)` —
+    // the `needsId = true` (4th) arg makes the runtime allocate an extra
+    // `ssrHydrationKey()`, drifting the SSR counter one ahead of the DOM
+    // counter. Every subsequent key — including the nested `<Icon>`'s `<svg>` —
+    // then pointed at the wrong SSR node.
+    //
+    // The 4th arg must be gated on `top_level` (Babel:
+    // `Boolean(topLevel && config.hydratable)`). A nested spread element gets
+    // `false`; only a *root* spread element gets `true`.
+    let code = transform_ssr_hydratable_re(
+        r#"function SplitButton(props) { return <div class="split"><button {...props.rest}><Icon/>{props.label}</button></div>; }"#,
+    );
+
+    // The nested spread `<button>` must NOT request a hydration key.
+    assert!(
+        code.contains("ssrElement(\"button\""),
+        "Nested spread element should still emit ssrElement(). Got:\n{}",
+        code
+    );
+    // The button's `ssrElement(...)` closes with `], false)` — the children
+    // arrow array followed by `needsId = false`. `, true)` anywhere would mean
+    // a key was requested (the bug).
+    assert!(
+        code.contains("], false)"),
+        "Nested spread element's ssrElement(...) must pass `needsId = false`. Got:\n{}",
+        code
+    );
+    assert!(
+        !code.contains(", true)"),
+        "Nested spread element's ssrElement(...) must NOT pass `needsId = true`; passing true over-allocates a hydration key and drifts the counter. Got:\n{}",
+        code
+    );
+
+    // Sanity: the outer wrapper <div> IS the template root and still carries
+    // its own hydration key.
+    assert!(
+        code.contains("ssrHydrationKey()"),
+        "Root <div> template should still carry a ssrHydrationKey(). Got:\n{}",
+        code
+    );
+}
+
+#[test]
+fn ssr_regression_root_spread_element_keeps_hydration_key() {
+    // Counterpart to the nested case: when the spread element IS the root of
+    // its `ssr` chunk (compiles to `getNextElement`/`spread()` on the root on
+    // the DOM side), it MUST keep `needsId = true` so its own key is allocated.
+    // Guards against over-correcting the nested fix into dropping the key for
+    // every spread element.
+    let code = transform_ssr_hydratable_re(r#"const x = <a {...rest} href={h}/>;"#);
+    assert!(
+        code.contains(", true)"),
+        "Root spread element's ssrElement(...) must pass `needsId = true`. Got:\n{}",
+        code
+    );
+}
+
+#[test]
 fn ssr_regression_solitary_dynamic_child_has_no_markers() {
     // A parent with a SINGLE meaningful child must NOT wrap that child with
     // `<!--$-->`/`<!--/-->`. Babel's rule: `markers = hydratable && multi`,

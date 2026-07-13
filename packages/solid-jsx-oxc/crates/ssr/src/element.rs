@@ -163,7 +163,7 @@ fn transform_element_impl<'a>(
         .any(|a| matches!(a, JSXAttributeItem::SpreadAttribute(_)));
 
     if has_spread {
-        return transform_element_with_spread(element, tag_name, context, options);
+        return transform_element_with_spread(element, tag_name, context, options, top_level);
     }
 
     // Start the tag
@@ -220,11 +220,27 @@ fn transform_element_impl<'a>(
 /// * For self-closing elements with a spread, children flow through the
 ///   spread's `children` prop. Pass `undefined` so the dom-expressions
 ///   `ssrElement` runtime falls back to `props.children`.
+///
+/// `top_level` gates the `ssrElement(...)` `needsId` (4th) argument, exactly
+/// like the keyless-nested-element rule in `transform_element_impl`. A spread
+/// element that is the **root** of its `ssr` chunk compiles on the DOM side to
+/// a `getNextElement(_tmpl$)` (top-level) or a `spread()` on that root, so it
+/// must allocate its own hydration key (`needsId = true`). A spread element
+/// **nested** inside a parent's template chunk (e.g. `<div><button {...rest}>…`)
+/// is reached on the DOM side by `firstChild`/`nextSibling` walking from the
+/// parent's single `getNextElement` — `spread()` on it advances no hydration
+/// counter — so it must NOT allocate a key. Passing `needsId = true` there
+/// over-allocates one context id and drifts the SSR counter ahead of the DOM
+/// counter, surfacing as `Hydration Mismatch. Unable to find DOM nodes for
+/// hydration key …` for the first element rendered after the spread. Babel's
+/// `ssr/element.js` uses `Boolean(topLevel && config.hydratable)` for the same
+/// argument.
 fn transform_element_with_spread<'a>(
     element: &JSXElement<'a>,
     tag_name: &str,
     context: &SSRContext<'a>,
     options: &TransformOptions<'a>,
+    top_level: bool,
 ) -> SSRResult<'a> {
     context.register_helper("ssrElement");
     context.register_helper("escape");
@@ -581,9 +597,13 @@ fn transform_element_with_spread<'a>(
     )));
     args.push(Argument::from(props_expr));
     args.push(Argument::from(children_arg));
+    // `needsId` — only the template *root* allocates a hydration key. A nested
+    // spread element is DOM-walked from the parent's `getNextElement`, so
+    // emitting a key here drifts the SSR counter ahead of the DOM counter (see
+    // this fn's doc comment). Babel: `Boolean(topLevel && config.hydratable)`.
     args.push(Argument::from(ast.expression_boolean_literal(
         span,
-        context.hydratable && options.hydratable,
+        top_level && context.hydratable && options.hydratable,
     )));
     let call = ast.expression_call(
         span,
