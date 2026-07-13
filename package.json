@@ -1,7 +1,7 @@
 {
   "name": "solid-jsx-oxc-monorepo",
   "description": "High-performance OXC-based JSX compiler for SolidJS",
-  "version": "0.1.0-alpha.24",
+  "version": "0.1.0-alpha.25",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
