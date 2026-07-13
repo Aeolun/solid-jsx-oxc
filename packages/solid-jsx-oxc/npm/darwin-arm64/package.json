@@ -1,6 +1,6 @@
 {
   "name": "@aeolun/solid-jsx-oxc-darwin-arm64",
-  "version": "0.1.0-alpha.24",
+  "version": "0.1.0-alpha.25",
   "cpu": [
     "arm64"
   ],

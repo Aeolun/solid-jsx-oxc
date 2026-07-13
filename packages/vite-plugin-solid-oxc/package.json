@@ -1,6 +1,6 @@
 {
   "name": "@aeolun/vite-plugin-solid-oxc",
-  "version": "0.1.0-alpha.24",
+  "version": "0.1.0-alpha.25",
   "description": "Vite plugin for SolidJS using OXC-based compiler",
   "type": "module",
   "main": "dist/index.js",

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha.25 (2026-07-13)
+
+### Bug Fixes
+
+- gate nested spread element hydration key on top_level
+
 ## 0.1.0-alpha.24 (2026-06-22)
 
 ### Bug Fixes
