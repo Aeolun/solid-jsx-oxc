@@ -1,6 +1,6 @@
 {
   "name": "@aeolun/solid-jsx-oxc-win32-arm64-msvc",
-  "version": "0.1.0-alpha.25",
+  "version": "0.1.0-alpha.26",
   "cpu": [
     "arm64"
   ],
