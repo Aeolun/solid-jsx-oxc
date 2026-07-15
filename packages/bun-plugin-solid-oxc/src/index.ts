@@ -77,6 +77,19 @@ export interface SolidOxcOptions {
    * @default false
    */
   ssr?: boolean;
+
+  /**
+   * Controls the compile-time hydration slot-order check, which catches the
+   * `Unable to find DOM nodes for hydration key …` class of bug at build time
+   * (element slots resolved through `children()` out of DOM order, or a
+   * `children()`-resolved slot mixed with an inline element slot rendered
+   * before it). Only runs when `hydratable` is enabled.
+   *   - `'error'` (default): throw and fail the build.
+   *   - `'warn'`: log a warning but continue.
+   *   - `'off'`: disable the check.
+   * @default 'error'
+   */
+  hydrationOrderCheck?: 'error' | 'warn' | 'off';
 }
 
 const defaultOptions: SolidOxcOptions = {
@@ -88,6 +101,7 @@ const defaultOptions: SolidOxcOptions = {
   delegateEvents: true,
   wrapConditionals: true,
   contextToCustomElements: true,
+  hydrationOrderCheck: 'error',
 };
 
 /**
@@ -115,8 +129,9 @@ export default function solidOxc(options: SolidOxcOptions = {}): BunPlugin {
 
         const generate = opts.ssr ? 'ssr' : opts.generate;
 
+        let result: ReturnType<typeof solidJsxOxc.transformJsx>;
         try {
-          const result = solidJsxOxc.transformJsx(source, {
+          result = solidJsxOxc.transformJsx(source, {
             filename: args.path,
             moduleName: opts.moduleName,
             generate,
@@ -124,19 +139,32 @@ export default function solidOxc(options: SolidOxcOptions = {}): BunPlugin {
             delegateEvents: opts.delegateEvents,
             wrapConditionals: opts.wrapConditionals,
             contextToCustomElements: opts.contextToCustomElements,
+            hydrationOrderCheck: opts.hydrationOrderCheck,
             sourceMap: false, // Bun handles source maps
           });
-
-          // Return as 'ts' - JSX is transformed but TypeScript syntax remains
-          // Using 'ts' prevents Bun's JSX transform while handling TS syntax
-          return {
-            contents: result.code,
-            loader: 'ts',
-          };
         } catch (e: unknown) {
           const message = e instanceof Error ? e.message : String(e);
           throw new Error(`Failed to transform ${args.path}: ${message}`);
         }
+
+        // Surface compile-time diagnostics (e.g. hydration slot-order hazards).
+        // Errors throw and fail the build; warnings are logged.
+        for (const d of result.diagnostics ?? []) {
+          const help = d.help ? `\n  help: ${d.help}` : '';
+          const msg = `${d.message}${help}\n  at ${args.path}:${d.line}:${d.column}`;
+          if (d.severity === 'error') {
+            throw new Error(msg);
+          } else {
+            console.warn(msg);
+          }
+        }
+
+        // Return as 'ts' - JSX is transformed but TypeScript syntax remains
+        // Using 'ts' prevents Bun's JSX transform while handling TS syntax
+        return {
+          contents: result.code,
+          loader: 'ts',
+        };
       });
     },
   };

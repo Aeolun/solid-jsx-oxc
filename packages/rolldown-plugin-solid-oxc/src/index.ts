@@ -78,6 +78,19 @@ export interface SolidOxcOptions {
    * @default false
    */
   ssr?: boolean;
+
+  /**
+   * Controls the compile-time hydration slot-order check, which catches the
+   * `Unable to find DOM nodes for hydration key …` class of bug at build time
+   * (element slots resolved through `children()` out of DOM order, or a
+   * `children()`-resolved slot mixed with an inline element slot rendered
+   * before it). Only runs when `hydratable` is enabled.
+   *   - `'error'` (default): fail the build.
+   *   - `'warn'`: log a warning but continue.
+   *   - `'off'`: disable the check.
+   * @default 'error'
+   */
+  hydrationOrderCheck?: 'error' | 'warn' | 'off';
 }
 
 const defaultOptions: SolidOxcOptions = {
@@ -89,6 +102,7 @@ const defaultOptions: SolidOxcOptions = {
   delegate_events: true,
   wrap_conditionals: true,
   context_to_custom_elements: true,
+  hydrationOrderCheck: 'error',
   dev: false,
   hot: true,
   builtIns: [
@@ -147,8 +161,9 @@ export default function solidOxc(options: SolidOxcOptions = {}): Plugin {
 
         const generate = opts.ssr ? 'ssr' : opts.generate;
 
+        let result: ReturnType<typeof solidJsxOxc.transformJsx>;
         try {
-          const result = solidJsxOxc.transformJsx(code, {
+          result = solidJsxOxc.transformJsx(code, {
             filename: fileId,
             moduleName: opts.module_name,
             generate,
@@ -156,30 +171,43 @@ export default function solidOxc(options: SolidOxcOptions = {}): Plugin {
             delegateEvents: opts.delegate_events,
             wrapConditionals: opts.wrap_conditionals,
             contextToCustomElements: opts.context_to_custom_elements,
+            hydrationOrderCheck: opts.hydrationOrderCheck,
             sourceMap: true,
           });
-
-          let finalCode = result.code;
-
-          // Add HMR support in dev mode
-          if (opts.dev && opts.hot !== false) {
-            const hotCode = `
-if (import.meta.hot) {
-  import.meta.hot.accept();
-}
-`;
-            finalCode = finalCode + hotCode;
-          }
-
-          return {
-            code: finalCode,
-            map: result.map ? JSON.parse(result.map) : null,
-          };
         } catch (e: unknown) {
           const message = e instanceof Error ? e.message : String(e);
           this.error(`Failed to transform ${id}: ${message}`);
           return null;
         }
+
+        // Surface compile-time diagnostics (e.g. hydration slot-order hazards).
+        // Errors fail the build (`this.error` throws); warnings are logged.
+        for (const d of result.diagnostics ?? []) {
+          const help = d.help ? `\n  help: ${d.help}` : '';
+          const msg = `${d.message}${help}\n  at ${fileId}:${d.line}:${d.column}`;
+          if (d.severity === 'error') {
+            this.error(msg);
+          } else {
+            console.warn(msg);
+          }
+        }
+
+        let finalCode = result.code;
+
+        // Add HMR support in dev mode
+        if (opts.dev && opts.hot !== false) {
+          const hotCode = `
+if (import.meta.hot) {
+  import.meta.hot.accept();
+}
+`;
+          finalCode = finalCode + hotCode;
+        }
+
+        return {
+          code: finalCode,
+          map: result.map ? JSON.parse(result.map) : null,
+        };
       },
     },
   };

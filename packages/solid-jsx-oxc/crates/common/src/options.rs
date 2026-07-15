@@ -1,5 +1,6 @@
 //! Transform options for the Solid JSX compiler
 
+use crate::diagnostic::HydrationOrderMode;
 use oxc_span::SourceType;
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -45,6 +46,10 @@ pub struct TransformOptions<'a> {
 
     /// Whether to generate source maps
     pub source_map: bool,
+
+    /// Controls the compile-time hydration slot-order analysis (only runs when
+    /// `hydratable` is true). Default: `Error` (fatal).
+    pub hydration_order_check: HydrationOrderMode,
 
     /// Static marker comment
     pub static_marker: &'a str,
@@ -94,6 +99,7 @@ impl<'a> TransformOptions<'a> {
             filename: "input.jsx",
             source_type: SourceType::tsx(),
             source_map: false,
+            hydration_order_check: HydrationOrderMode::Error,
             static_marker: "@once",
             templates: RefCell::new(vec![]),
             helpers: RefCell::new(HashSet::new()),

@@ -1,8 +1,11 @@
 pub mod check;
 pub mod constants;
+pub mod diagnostic;
 pub mod expression;
 pub mod options;
 pub mod xhtml;
+
+pub use diagnostic::{Diagnostic, HydrationOrderMode, Severity};
 
 pub use check::{
     find_prop, find_prop_value, get_attr_name, get_attr_value, get_tag_name, is_built_in,

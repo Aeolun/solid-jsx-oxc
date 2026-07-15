@@ -13,7 +13,9 @@
 //! println!("{}", result.code);
 //! ```
 
-pub use common::TransformOptions;
+pub use common::{Diagnostic, HydrationOrderMode, Severity, TransformOptions};
+
+mod hydration_order;
 
 #[cfg(feature = "napi")]
 use napi_derive::napi;
@@ -36,6 +38,25 @@ pub struct TransformResult {
     pub code: String,
     /// Source map (if enabled)
     pub map: Option<String>,
+    /// Compile-time diagnostics (e.g. hydration slot-order hazards). The plugins
+    /// fail the build on any `severity: "error"` entry.
+    pub diagnostics: Vec<JsDiagnostic>,
+}
+
+/// A compile-time diagnostic surfaced to JavaScript.
+#[cfg(feature = "napi")]
+#[napi(object)]
+pub struct JsDiagnostic {
+    /// `"error"` or `"warning"`.
+    pub severity: String,
+    /// Human-readable message describing the problem.
+    pub message: String,
+    /// Optional fix-it guidance.
+    pub help: Option<String>,
+    /// 1-based line of the anchor span in the source.
+    pub line: u32,
+    /// 1-based column of the anchor span in the source.
+    pub column: u32,
 }
 
 /// Transform options exposed to JavaScript
@@ -75,6 +96,11 @@ pub struct JsTransformOptions {
     /// Whether to generate source maps
     /// @default false
     pub source_map: Option<bool>,
+
+    /// Controls the compile-time hydration slot-order check: `"error"` (fatal,
+    /// default), `"warn"`, or `"off"`. Only runs when `hydratable` is true.
+    /// @default "error"
+    pub hydration_order_check: Option<String>,
 }
 
 /// Transform JSX source code
@@ -98,29 +124,94 @@ pub fn transform_jsx(source: String, options: Option<JsTransformOptions>) -> Tra
         context_to_custom_elements: js_options.context_to_custom_elements.unwrap_or(true),
         filename: js_options.filename.as_deref().unwrap_or("input.jsx"),
         source_map: js_options.source_map.unwrap_or(false),
+        hydration_order_check: HydrationOrderMode::from_option(
+            js_options.hydration_order_check.as_deref(),
+        ),
         ..TransformOptions::solid_defaults()
     };
 
-    let result = transform_internal(&source, &options);
+    let (result, diagnostics) = transform_internal(&source, &options);
+
+    let diagnostics = diagnostics
+        .into_iter()
+        .map(|d| {
+            let (line, column) = line_column(&source, d.start);
+            JsDiagnostic {
+                severity: d.severity.as_str().to_string(),
+                message: d.message,
+                help: d.help,
+                line,
+                column,
+            }
+        })
+        .collect();
 
     TransformResult {
         code: result.code,
         map: result.map.map(|m| m.to_json_string()),
+        diagnostics,
     }
+}
+
+/// Convert a byte offset into 1-based (line, column). Column counts UTF-16-ish
+/// code units are unnecessary here — it's only for human-readable diagnostics,
+/// so a char count within the line is adequate.
+#[cfg(feature = "napi")]
+fn line_column(source: &str, offset: u32) -> (u32, u32) {
+    let offset = offset as usize;
+    let mut line = 1u32;
+    let mut col = 1u32;
+    for (i, ch) in source.char_indices() {
+        if i >= offset {
+            break;
+        }
+        if ch == '\n' {
+            line += 1;
+            col = 1;
+        } else {
+            col += 1;
+        }
+    }
+    (line, col)
 }
 
 /// Internal transform function
 pub fn transform(source: &str, options: Option<TransformOptions>) -> CodegenReturn {
     let options = options.unwrap_or_else(TransformOptions::solid_defaults);
-    transform_internal(source, &options)
+    transform_internal(source, &options).0
 }
 
-fn transform_internal(source: &str, options: &TransformOptions) -> CodegenReturn {
+/// Run only the compile-time hydration slot-order analysis, returning any
+/// diagnostics without performing the DOM/SSR transform. Intended for tests and
+/// tooling that want the diagnostics in isolation.
+pub fn analyze_hydration_order(source: &str, options: &TransformOptions) -> Vec<Diagnostic> {
+    if !options.hydratable {
+        return Vec::new();
+    }
+    let allocator = Allocator::default();
+    let source_type = SourceType::from_path(options.filename).unwrap_or(SourceType::tsx());
+    let program = Parser::new(&allocator, source, source_type).parse().program;
+    hydration_order::analyze(&program, source, options.hydration_order_check)
+}
+
+fn transform_internal(
+    source: &str,
+    options: &TransformOptions,
+) -> (CodegenReturn, Vec<Diagnostic>) {
     let allocator = Allocator::default();
     let source_type = SourceType::from_path(options.filename).unwrap_or(SourceType::tsx());
 
     // Parse the source
     let mut program = Parser::new(&allocator, source, source_type).parse().program;
+
+    // Compile-time hydration slot-order analysis. Runs on the pristine AST,
+    // before the transform mutates the JSX away. Gated on `hydratable` (the
+    // hazard only exists during SSR hydration) and the configured mode.
+    let diagnostics = if options.hydratable {
+        hydration_order::analyze(&program, source, options.hydration_order_check)
+    } else {
+        Vec::new()
+    };
 
     // Run the appropriate transform based on generate mode
     // SAFETY: We create a raw pointer to `options` and dereference it to get a reference
@@ -149,7 +240,7 @@ fn transform_internal(source: &str, options: &TransformOptions) -> CodegenReturn
     }
 
     // Generate code
-    Codegen::new()
+    let codegen = Codegen::new()
         .with_options(CodegenOptions {
             source_map_path: if options.source_map {
                 Some(PathBuf::from(options.filename))
@@ -160,7 +251,9 @@ fn transform_internal(source: &str, options: &TransformOptions) -> CodegenReturn
             indent_char: IndentChar::Space,
             ..CodegenOptions::default()
         })
-        .build(&program)
+        .build(&program);
+
+    (codegen, diagnostics)
 }
 
 #[cfg(test)]

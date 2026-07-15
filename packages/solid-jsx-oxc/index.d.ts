@@ -52,9 +52,30 @@ export interface TransformOptions {
   sourceMap?: boolean;
 
   /**
+   * Controls the compile-time hydration slot-order check: `"error"` (fatal,
+   * default), `"warn"`, or `"off"`. Only runs when `hydratable` is true.
+   * @default "error"
+   */
+  hydrationOrderCheck?: 'error' | 'warn' | 'off';
+
+  /**
    * Built-in components that receive special handling
    */
   builtIns?: string[];
+}
+
+/** A compile-time diagnostic surfaced by the transform. */
+export interface Diagnostic {
+  /** `"error"` or `"warning"`. */
+  severity: 'error' | 'warning' | string;
+  /** Human-readable message describing the problem. */
+  message: string;
+  /** Optional fix-it guidance. */
+  help?: string;
+  /** 1-based line of the anchor span in the source. */
+  line: number;
+  /** 1-based column of the anchor span in the source. */
+  column: number;
 }
 
 export interface TransformResult {
@@ -62,6 +83,11 @@ export interface TransformResult {
   code: string;
   /** Source map (if enabled) */
   map?: string;
+  /**
+   * Compile-time diagnostics (e.g. hydration slot-order hazards). Consumers
+   * fail the build on any `severity: "error"` entry.
+   */
+  diagnostics: Diagnostic[];
 }
 
 /**
@@ -84,6 +110,7 @@ export function transformJsx(source: string, options?: {
   contextToCustomElements?: boolean;
   filename?: string;
   sourceMap?: boolean;
+  hydrationOrderCheck?: 'error' | 'warn' | 'off' | string;
 } | null): TransformResult;
 
 export interface PresetResult {
