@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-alpha.27 (2026-07-15)
+
+### Features
+
+- compile-time hydration slot-order check
+
 ## 0.1.0-alpha.25 (2026-07-13)
 
 ### Bug Fixes
